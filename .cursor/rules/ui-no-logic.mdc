@@ -1,0 +1,22 @@
+---
+description: UI 层不得内联业务逻辑，只做展示与刷新调度
+globs:
+  - app-linux/**
+  - app-macos/**
+alwaysApply: false
+---
+
+# UI 层职责边界
+
+每端内部分为「采集层」与「UI 层」。业务逻辑（git/chezmoi/天气/配置解析与派生）属于**本端采集层**；
+UI 只负责：调用本端采集层接口、把耗时调用放到后台线程/队列、拿结果回主线程渲染、定时/手动触发刷新、本地化展示。详见 SDD §6/§8/§9。
+
+```text
+❌ 在 UI 视图里解析 `git status` 输出、判断 ahead/behind、解析天气 JSON、派生 RepoState
+✅ 调用本端采集层的 collect_snapshot / collect_repos / fetch_weather，渲染返回的结构化数据
+```
+
+- 时钟是例外：纯展示逻辑，由 UI 自行按 IANA tz 渲染（时钟配置来自 config）。见 ADR-006。
+- 所有采集调用必须在后台线程/队列执行（Rust 后台线程、Swift `Task`/`DispatchQueue`），不得阻塞 UI 主线程。
+- 两端信息架构与状态颜色语义保持一致（绿=Clean，黄=NeedsPush/NeedsPull/Dirty，红=Diverged/Error，灰=NoUpstream/未配置）。
+- 不替用户执行 git/chezmoi 写操作（commit/push/pull/apply）。

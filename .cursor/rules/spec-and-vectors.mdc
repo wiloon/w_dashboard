@@ -1,0 +1,22 @@
+---
+description: 规格驱动 + 测试向量约束（两端独立实现的一致性闸门）
+globs:
+  - app-linux/**
+  - app-macos/**
+alwaysApply: false
+---
+
+# 规格驱动与一致性
+
+本项目以规格为单一事实来源（ADR-008），Linux/macOS 两端独立原生实现、不共享代码、无 FFI（ADR-002）。
+两端的解析与派生逻辑必须严格按 `docs/sdd.md` 实现，并通过 `docs/test-vectors/` 的同一份用例。
+
+```text
+❌ 直接在本端代码里"自创"git 状态判定 / RepoState 优先级 / 天气字段映射
+✅ 按 SDD §5 数据模型、§7 派生规则实现，并用 docs/test-vectors/ 跑契约测试验证
+```
+
+- **行为变更流程**：先改 `docs/sdd.md`（模型/规则）→ 改 `docs/test-vectors/` → 再改两端实现。不要只改一端代码。
+- `RepoState` 必须按 SDD §7.2 决策表派生（Dirty 优先级最高，仅次于 Error）；改判定规则先改 SDD + 向量。
+- 解析层与派生层应是**纯函数**，便于被测试向量覆盖；调命令/联网的副作用隔离在采集入口。
+- 不引入共享二进制 core、不引入 UniFFI/FFI（见 ADR-002 非目标）。
