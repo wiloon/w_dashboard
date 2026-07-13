@@ -22,9 +22,8 @@ Accepted
 
 ## Decision
 
-**选择方案 A 为主**：使用用户级 TOML 配置文件显式声明关注的仓库及其它参数。
+**选择方案 A**：使用用户级 TOML 配置文件显式声明关注的仓库（绝对路径）及其它参数，**不提供 `scan_roots` 自动扫描**。
 - 路径遵循 XDG 规范：`$XDG_CONFIG_HOME/w_dashboard/config.toml`，回退到 `~/.config/w_dashboard/config.toml`（macOS 同样采用 `~/.config/w_dashboard/` 以与 Linux 一致并便于 chezmoi 跨机管理）。
-- **可选增强**：允许配置 `scan_roots`（扫描根目录）作为补充，但默认不启用；显式 `repos` 列表始终是主路径。
 
 配置内容涵盖：关注的仓库列表、是否启用 chezmoi、时钟（多个 IANA 时区）、天气（Open-Meteo 经纬度/地点）、刷新间隔等。详见 SDD 的配置 schema。
 
@@ -37,14 +36,14 @@ Accepted
 
 ## Trade-offs
 
-- 新增/移除关注的仓库需要手动编辑配置（可被 `scan_roots` 可选缓解）。
+- 新增/移除关注的仓库需要手动编辑配置。
 
 ## Consequences
 
 - **Positive**：行为精确可控；配置可版本化、可跨机同步；解析规则集中在规格、两端一致实现。
 - **Negative**：仓库集合变化时需维护配置。
-- **Mitigation**：提供清晰的默认配置模板与字段文档；保留可选 `scan_roots` 作为自动发现补充。
+- **Mitigation**：提供清晰的默认配置模板与字段文档。
 
 ## Revisit Trigger
 
-- 手动维护仓库列表成为明显负担，需要把自动扫描提升为默认行为。
+- 手动维护仓库列表成为明显负担，需要引入某种形式的自动发现机制。

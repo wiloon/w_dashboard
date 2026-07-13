@@ -11,7 +11,7 @@ Accepted
 
 **约束 / 前提**：
 - 处于 AI 时代：一份足够精确的规格（ADR + SDD + task-spec）可以驱动 AI 生成各平台代码。
-- 存在两份独立的平台实现（Rust/Iced 与 Swift/SwiftUI），需要一个统一的「源」来防止它们各自漂移。
+- 存在两份独立的平台实现（Rust/Slint 与 Swift/SwiftUI），需要一个统一的「源」来防止它们各自漂移。
 
 ## Options Considered
 

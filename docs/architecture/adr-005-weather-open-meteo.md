@@ -46,3 +46,4 @@ Accepted
 ## Revisit Trigger
 
 - Open-Meteo 不再满足需求（精度、可用性、限流）。
+- 需要 OpenWeatherMap 特有的差异化能力（如分钟级降水临近预报）时，**不替换** Open-Meteo，而是把天气数据源设计成可插拔的多提供方：新增 OpenWeatherMap 作为可选项（需用户自行申请并配置 API key），Open-Meteo 保留为默认/零配置选项。当前阶段（v1）明确不做这个抽象，属 YAGNI（见 SDD §13）。

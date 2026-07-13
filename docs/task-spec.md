@@ -11,7 +11,7 @@
 |--------|------|------|
 | M0 | 脚手架与文档基线 | — |
 | M1 | 行为契约 / 测试向量集（语言无关） | M0 |
-| M2 | app-linux（Rust + Iced/libcosmic）完整实现 | M1 |
+| M2 | app-linux（Rust + Slint）完整实现 | M1 |
 | M3 | app-macos（Swift + SwiftUI）完整实现 | M1 |
 | M4 | 两端一致性核对与打磨 | M2, M3 |
 
@@ -38,13 +38,13 @@
 - **T1.6** 约定向量文件格式（统一 `{ input, expected }`）并在 `docs/test-vectors/README.md` 说明如何被两端加载。
 - **验收**：向量覆盖 §7 全部规则与关键边界；格式清晰、可被任意语言读取。
 
-## M2 — app-linux（Rust + Iced/libcosmic）
+## M2 — app-linux（Rust + Slint）
 
 > 完整独立实现；不依赖任何共享 core。
 
 ### M2a 采集层
 
-- **T2.1** 工程脚手架与依赖（serde、toml、reqwest(blocking) 或等价、serde_json、chrono/time 等）。
+- **T2.1** 工程脚手架与依赖（slint + slint-build、serde、toml、reqwest(blocking) 或等价、serde_json、chrono/time 等）。
 - **T2.2** 数据模型（SDD §5 全部类型，Rust 原生 struct/enum）。
 - **T2.3** 配置加载（SDD §4：`~`/env 展开、默认值、字段校验、可读错误）。
 - **T2.4** 子进程封装（cwd/参数/超时/捕获输出/区分"命令不存在"与"非零退出"）。
@@ -56,7 +56,7 @@
 
 ### M2b UI
 
-- **T2.9** 四分区 UI（Repos / chezmoi / Clocks / Weather），按 SDD §9 信息架构与颜色语义。
+- **T2.9** 四分区 UI（Repos / chezmoi / Clocks / Weather），用 `.slint` 文件描述界面，按 SDD §9 信息架构与颜色语义。
 - **T2.10** 刷新策略（SDD §8）：启动自检 + 后台线程采集 + 手动刷新 + 定时刷新；时钟独立每秒刷新。
 - **T2.11** 错误/降级展示（缺 git/chezmoi 提示、fetch 失败标记、天气降级、上次刷新时间）。
 - **T2.12** `.desktop` 入口与构建说明。
