@@ -1,0 +1,13 @@
+{
+  "input": "# branch.oid abc123\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n",
+  "expected": {
+    "branch": "main",
+    "upstream": "origin/main",
+    "ahead": 0,
+    "behind": 0,
+    "staged": 0,
+    "modified": 0,
+    "untracked": 0,
+    "conflicted": 0
+  }
+}

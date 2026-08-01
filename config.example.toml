@@ -1,0 +1,41 @@
+# w_dashboard config template. Copy to $XDG_CONFIG_HOME/w_dashboard/config.toml
+# (falls back to ~/.config/w_dashboard/config.toml) and edit as needed.
+# See docs/sdd.md §4 for the full schema.
+
+[general]
+# Background auto-refresh interval in seconds. 0 = manual refresh only.
+refresh_interval_secs = 900
+# Timeout (seconds) for each subprocess call (git, chezmoi).
+command_timeout_secs = 20
+# Whether to run `git fetch` / chezmoi fetch on refresh (requires network).
+fetch_remote = true
+
+# Repos to watch (explicit absolute paths).
+[[repos]]
+path = "~/workspace/projects/foo"
+# Optional: override the display name; defaults to the directory name.
+name = "foo"
+
+[[repos]]
+path = "~/dotfiles-extra"
+
+[chezmoi]
+enabled = true
+# Optional: explicit chezmoi source dir; defaults to `chezmoi source-path`.
+# source_path = "~/.local/share/chezmoi"
+
+[[clocks]]
+label = "Beijing"
+tz = "Asia/Shanghai"
+
+[[clocks]]
+label = "New York"
+tz = "America/New_York"
+
+[weather]
+# Either a location name (resolved via geocoding) or explicit lat/long.
+location = "Beijing"
+# latitude = 39.9042
+# longitude = 116.4074
+temperature_unit = "celsius"
+forecast_days = 5

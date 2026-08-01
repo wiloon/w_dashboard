@@ -1,0 +1,13 @@
+{
+  "input": "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n2 R. N... 100644 100644 100644 100644 aaa bbb R100 new-name.txt\told-name.txt\n",
+  "expected": {
+    "branch": "main",
+    "upstream": "origin/main",
+    "ahead": 0,
+    "behind": 0,
+    "staged": 1,
+    "modified": 0,
+    "untracked": 0,
+    "conflicted": 0
+  }
+}

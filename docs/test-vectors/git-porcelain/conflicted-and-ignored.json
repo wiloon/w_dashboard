@@ -1,0 +1,13 @@
+{
+  "input": "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\nu UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\n! ignored-file.txt\n? new-file.txt\n",
+  "expected": {
+    "branch": "main",
+    "upstream": "origin/main",
+    "ahead": 0,
+    "behind": 0,
+    "staged": 0,
+    "modified": 0,
+    "untracked": 1,
+    "conflicted": 1
+  }
+}

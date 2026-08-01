@@ -1,0 +1,352 @@
+import { Button, VerticalBox, HorizontalBox, ScrollView, LineEdit } from "std-widgets.slint";
+
+export struct RepoRow {
+    name: string,
+    path: string,
+    branch: string,
+    state_label: string,
+    state_color: color,
+    ahead: int,
+    behind: int,
+    staged: int,
+    modified: int,
+    untracked: int,
+    conflicted: int,
+    error: string,
+}
+
+export struct RepoEntry {
+    path: string,
+    name: string,
+}
+
+export struct ClockRow {
+    label: string,
+    time: string,
+    date: string,
+}
+
+export struct WeatherDayRow {
+    date: string,
+    temp_max: string,
+    temp_min: string,
+    description: string,
+    precip: string,
+}
+
+export component AppWindow inherits Window {
+    title: "w_dashboard";
+    preferred-width: 920px;
+    preferred-height: 680px;
+
+    in-out property <bool> dark_mode: true;
+
+    // Palette — every color used below is derived from `dark_mode`, so the
+    // whole UI is theme-independent (never relies on the OS default text
+    // color, which caused unreadable text on custom-colored backgrounds).
+    property <color> window-bg: dark_mode ? #1a1a1a : #f2f3f5;
+    property <color> card-bg: dark_mode ? #262626 : #ffffff;
+    property <color> card-border: dark_mode ? #3a3a3a : #dcdfe4;
+    property <color> text-primary: dark_mode ? #f2f2f2 : #1c1e21;
+    property <color> text-secondary: dark_mode ? #9aa0a6 : #5f6368;
+    property <color> text-tertiary: dark_mode ? #c7cdd3 : #3c4043;
+    property <color> error-color: #ff6b6b;
+
+    background: window-bg;
+
+    in-out property <[RepoRow]> repos: [];
+    in-out property <string> last_updated: "never";
+    in-out property <bool> refreshing: false;
+
+    in-out property <[RepoEntry]> repo_entries: [];
+    in-out property <bool> show_manage_repos: false;
+    in-out property <string> add_repo_path: "";
+    in-out property <string> add_repo_name: "";
+    in-out property <string> editing_repo_path: "";
+    in-out property <string> repo_form_error: "";
+
+    in-out property <[ClockRow]> clocks: [];
+
+    in-out property <bool> weather_configured: false;
+    in-out property <string> weather_location: "";
+    in-out property <string> weather_current_temp: "";
+    in-out property <string> weather_current_desc: "";
+    in-out property <[WeatherDayRow]> weather_daily: [];
+    in-out property <string> weather_error: "";
+
+    callback refresh();
+    callback add_repo(string, string);
+    callback remove_repo(string);
+    callback update_repo(string, string, string);
+
+    VerticalBox {
+        padding: 14px;
+        spacing: 14px;
+
+        HorizontalBox {
+            padding: 0px;
+            Text {
+                text: "w_dashboard";
+                font-size: 22px;
+                font-weight: 800;
+                color: text-primary;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: dark_mode ? "Light mode" : "Dark mode";
+                clicked => { dark_mode = !dark_mode; }
+            }
+        }
+
+        ScrollView {
+            VerticalBox {
+                padding: 0px;
+                spacing: 20px;
+
+                // ---------------- Repos ----------------
+                VerticalBox {
+                    padding: 0px;
+                    spacing: 8px;
+
+                    HorizontalBox {
+                        padding: 0px;
+                        Text { text: "Repos"; font-size: 18px; font-weight: 700; color: text-primary; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: "last updated: " + last_updated;
+                            vertical-alignment: center;
+                            color: text-secondary;
+                        }
+                        Button {
+                            text: show_manage_repos ? "Done" : "Manage";
+                            clicked => {
+                                show_manage_repos = !show_manage_repos;
+                                editing_repo_path = "";
+                                add_repo_path = "";
+                                add_repo_name = "";
+                                repo_form_error = "";
+                            }
+                        }
+                        Button {
+                            text: refreshing ? "Refreshing..." : "Refresh";
+                            enabled: !refreshing;
+                            clicked => { refresh(); }
+                        }
+                    }
+
+                    if show_manage_repos: Rectangle {
+                        border-radius: 8px;
+                        background: card-bg;
+                        border-width: 1px;
+                        border-color: card-border;
+                        VerticalBox {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            for entry in repo_entries: HorizontalBox {
+                                padding: 0px;
+                                spacing: 6px;
+                                VerticalBox {
+                                    padding: 0px;
+                                    spacing: 0px;
+                                    alignment: start;
+                                    Text {
+                                        text: entry.name == "" ? "(unnamed)" : entry.name;
+                                        color: text-primary;
+                                        font-weight: 700;
+                                        font-size: 13px;
+                                    }
+                                    Text { text: entry.path; color: text-secondary; font-size: 11px; }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Button {
+                                    text: "Edit";
+                                    clicked => {
+                                        editing_repo_path = entry.path;
+                                        add_repo_path = entry.path;
+                                        add_repo_name = entry.name;
+                                        repo_form_error = "";
+                                    }
+                                }
+                                Button {
+                                    text: "Remove";
+                                    clicked => { remove_repo(entry.path); }
+                                }
+                            }
+
+                            Rectangle { height: 1px; background: card-border; }
+
+                            Text {
+                                text: editing_repo_path == "" ? "Add repo" : "Editing: " + editing_repo_path;
+                                color: text-secondary;
+                                font-size: 12px;
+                            }
+                            HorizontalBox {
+                                padding: 0px;
+                                spacing: 6px;
+                                LineEdit {
+                                    placeholder-text: "/absolute/path/to/repo";
+                                    text <=> add_repo_path;
+                                    horizontal-stretch: 2;
+                                }
+                                LineEdit {
+                                    placeholder-text: "display name (optional)";
+                                    text <=> add_repo_name;
+                                    horizontal-stretch: 1;
+                                }
+                                Button {
+                                    text: editing_repo_path == "" ? "Add" : "Save";
+                                    clicked => {
+                                        if (editing_repo_path == "") {
+                                            add_repo(add_repo_path, add_repo_name);
+                                        } else {
+                                            update_repo(editing_repo_path, add_repo_path, add_repo_name);
+                                        }
+                                    }
+                                }
+                                if editing_repo_path != "": Button {
+                                    text: "Cancel";
+                                    clicked => {
+                                        editing_repo_path = "";
+                                        add_repo_path = "";
+                                        add_repo_name = "";
+                                        repo_form_error = "";
+                                    }
+                                }
+                            }
+                            if repo_form_error != "": Text {
+                                text: repo_form_error;
+                                color: error-color;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    for repo in repos: Rectangle {
+                        border-radius: 8px;
+                        background: card-bg;
+                        VerticalBox {
+                            padding: 10px;
+                            spacing: 4px;
+                            HorizontalBox {
+                                padding: 0px;
+                                spacing: 8px;
+                                Rectangle {
+                                    width: 10px;
+                                    height: 10px;
+                                    border-radius: 5px;
+                                    background: repo.state_color;
+                                    y: 5px;
+                                }
+                                Text {
+                                    text: repo.name + "  (" + repo.branch + ")";
+                                    font-weight: 700;
+                                    color: text-primary;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Text {
+                                    text: repo.state_label;
+                                    color: repo.state_color;
+                                    font-weight: 700;
+                                }
+                            }
+                            Text {
+                                text: repo.path;
+                                font-size: 12px;
+                                color: text-secondary;
+                            }
+                            if repo.error != "": Text {
+                                text: "error: " + repo.error;
+                                color: error-color;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                            if repo.error == "": Text {
+                                text: "ahead " + repo.ahead + " · behind " + repo.behind
+                                    + " · staged " + repo.staged + " · modified " + repo.modified
+                                    + " · untracked " + repo.untracked + " · conflicted " + repo.conflicted;
+                                font-size: 12px;
+                                color: text-tertiary;
+                            }
+                        }
+                    }
+                    if repos.length == 0: Text {
+                        text: "No repos configured. Use \"Manage\" above to add one.";
+                        color: text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // ---------------- Clocks ----------------
+                VerticalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    Text { text: "Clocks"; font-size: 18px; font-weight: 700; color: text-primary; }
+                    HorizontalBox {
+                        padding: 0px;
+                        spacing: 10px;
+                        for clock in clocks: Rectangle {
+                            border-radius: 8px;
+                            background: card-bg;
+                            VerticalBox {
+                                padding: 10px;
+                                spacing: 2px;
+                                alignment: start;
+                                Text { text: clock.label; color: text-secondary; font-size: 12px; }
+                                Text { text: clock.time; color: text-primary; font-size: 24px; font-weight: 700; }
+                                Text { text: clock.date; color: text-tertiary; font-size: 11px; }
+                            }
+                        }
+                    }
+                }
+
+                // ---------------- Weather ----------------
+                VerticalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    Text { text: "Weather"; font-size: 18px; font-weight: 700; color: text-primary; }
+                    if !weather_configured: Text {
+                        text: "Weather not configured. Add a [weather] section to config.toml.";
+                        color: text-secondary;
+                        wrap: word-wrap;
+                    }
+                    if weather_configured: Rectangle {
+                        border-radius: 8px;
+                        background: card-bg;
+                        VerticalBox {
+                            padding: 10px;
+                            spacing: 6px;
+                            HorizontalBox {
+                                padding: 0px;
+                                Text { text: weather_location; color: text-primary; font-weight: 700; }
+                                Rectangle { horizontal-stretch: 1; }
+                                Text { text: weather_current_temp; color: text-primary; font-size: 20px; font-weight: 700; }
+                            }
+                            Text { text: weather_current_desc; color: text-secondary; }
+                            if weather_error != "": Text {
+                                text: "error: " + weather_error;
+                                color: error-color;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                            if weather_error == "": HorizontalBox {
+                                padding: 0px;
+                                spacing: 12px;
+                                for day in weather_daily: VerticalBox {
+                                    padding: 4px;
+                                    spacing: 2px;
+                                    alignment: start;
+                                    Text { text: day.date; color: text-secondary; font-size: 11px; }
+                                    Text { text: day.description; color: text-tertiary; font-size: 11px; wrap: word-wrap; }
+                                    Text { text: day.temp_max + " / " + day.temp_min; color: text-primary; font-size: 12px; }
+                                    Text { text: day.precip; color: text-tertiary; font-size: 10px; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

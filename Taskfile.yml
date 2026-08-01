@@ -1,0 +1,20 @@
+version: '3'
+
+tasks:
+  run:
+    desc: Build and run the Linux app (Rust + Slint)
+    dir: app-linux
+    cmds:
+      - cargo run
+
+  build:
+    desc: Build the Linux app
+    dir: app-linux
+    cmds:
+      - cargo build
+
+  test:
+    desc: Run app-linux tests (includes docs/test-vectors contract tests)
+    dir: app-linux
+    cmds:
+      - cargo test

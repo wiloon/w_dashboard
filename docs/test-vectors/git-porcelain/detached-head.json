@@ -1,0 +1,13 @@
+{
+  "input": "# branch.oid abc123\n# branch.head (detached)\n",
+  "expected": {
+    "branch": null,
+    "upstream": null,
+    "ahead": 0,
+    "behind": 0,
+    "staged": 0,
+    "modified": 0,
+    "untracked": 0,
+    "conflicted": 0
+  }
+}

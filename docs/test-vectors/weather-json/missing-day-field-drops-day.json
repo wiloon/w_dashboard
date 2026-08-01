@@ -1,0 +1,32 @@
+{
+  "location_label": "Beijing",
+  "temperature_unit": "fahrenheit",
+  "fetched_at": 1700000000,
+  "input": {
+    "latitude": 39.9,
+    "longitude": 116.4,
+    "current": {
+      "time": "2024-01-01T12:00",
+      "temperature_2m": 41.0,
+      "weather_code": 1
+    },
+    "daily": {
+      "time": ["2024-01-01", "2024-01-02"],
+      "weather_code": [3, 61],
+      "temperature_2m_max": [45.0, 42.0],
+      "temperature_2m_min": [30.0],
+      "precipitation_probability_max": [10, 40]
+    }
+  },
+  "expected": {
+    "location_label": "Beijing",
+    "latitude": 39.9,
+    "longitude": 116.4,
+    "fetched_at": 1700000000,
+    "temperature_unit": "fahrenheit",
+    "current": { "temperature": 41.0, "weather_code": 1, "description": "Mainly clear" },
+    "daily": [
+      { "date": "2024-01-01", "temp_max": 45.0, "temp_min": 30.0, "weather_code": 3, "description": "Overcast", "precipitation_probability_max": 10 }
+    ]
+  }
+}

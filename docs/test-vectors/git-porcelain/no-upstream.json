@@ -1,0 +1,13 @@
+{
+  "input": "# branch.oid abc123\n# branch.head feature/x\n1 A. N... 100644 100644 100644 aaa bbb newfile.txt\n",
+  "expected": {
+    "branch": "feature/x",
+    "upstream": null,
+    "ahead": 0,
+    "behind": 0,
+    "staged": 1,
+    "modified": 0,
+    "untracked": 0,
+    "conflicted": 0
+  }
+}
