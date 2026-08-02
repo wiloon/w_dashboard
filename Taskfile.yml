@@ -18,3 +18,28 @@ tasks:
     dir: app-linux
     cmds:
       - cargo test
+
+  macos:dev:
+    desc: Build and run the macOS app via swift run (fast iteration; Cmd+V paste in dialogs may route to Terminal since it's not a real .app bundle)
+    dir: app-macos
+    cmds:
+      - swift run WDashboardApp
+
+  macos:run:
+    desc: Build, package as a real .app bundle, and open it (correct keyboard/menu behavior, e.g. Cmd+V)
+    dir: app-macos
+    cmds:
+      - ./Scripts/build-app.sh
+      - open dist/WDashboard.app
+
+  macos-build:
+    desc: Build the macOS app
+    dir: app-macos
+    cmds:
+      - swift build
+
+  macos-test:
+    desc: Run app-macos tests (includes docs/test-vectors contract tests)
+    dir: app-macos
+    cmds:
+      - swift test
