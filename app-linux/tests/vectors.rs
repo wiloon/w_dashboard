@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use w_dashboard_linux::git::{derive_state, parse_porcelain_v2, DeriveInput};
 use w_dashboard_linux::model::RepoState;
-use w_dashboard_linux::weather::{parse_forecast_json, wmo_description};
+use w_dashboard_linux::weather::{parse_forecast_json, wmo_description, wmo_icon_index, WEATHER_ICON_NAMES};
 
 fn vectors_dir(sub: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -139,6 +139,12 @@ fn wmo_codes_vectors() {
     for (code_str, expected_desc) in &mapping {
         let code: i64 = code_str.parse().unwrap_or_else(|e| panic!("{path:?}: bad code {code_str:?}: {e}"));
         assert_eq!(wmo_description(code), expected_desc, "wmo code {code} mismatch");
+
+        let icon_index = wmo_icon_index(code);
+        assert!(
+            (icon_index as usize) < WEATHER_ICON_NAMES.len(),
+            "wmo code {code} maps to out-of-range icon index {icon_index}"
+        );
     }
 }
 

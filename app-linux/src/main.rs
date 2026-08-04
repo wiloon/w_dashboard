@@ -119,6 +119,7 @@ fn apply_weather_report(ui: &AppWindow, report: &WeatherReport) {
     ui.set_weather_location(report.location_label.clone().into());
     ui.set_weather_current_temp(temperature_string(report.current.temperature, &report.temperature_unit).into());
     ui.set_weather_current_desc(report.current.description.clone().into());
+    ui.set_weather_current_icon_index(weather::wmo_icon_index(report.current.weather_code));
     ui.set_weather_error(SharedString::default());
     let days: Vec<WeatherDayRow> = report
         .daily
@@ -133,6 +134,7 @@ fn apply_weather_report(ui: &AppWindow, report: &WeatherReport) {
                 .map(|p| format!("precip {p}%"))
                 .unwrap_or_default()
                 .into(),
+            icon_index: weather::wmo_icon_index(d.weather_code),
         })
         .collect();
     ui.set_weather_daily(Rc::new(VecModel::from(days)).into());

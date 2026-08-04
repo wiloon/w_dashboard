@@ -66,6 +66,42 @@ pub fn wmo_description(code: i64) -> &'static str {
     }
 }
 
+/// Icon file stems (see `ui/icons/weather/*.svg`, sourced from the MIT-licensed
+/// Meteocons set), indexed by `wmo_icon_index`. Order must match the
+/// `weather_icons` array literal in `ui/app-window.slint`.
+pub const WEATHER_ICON_NAMES: [&str; 12] = [
+    "clear-day",
+    "partly-cloudy-day",
+    "overcast-day",
+    "fog",
+    "drizzle",
+    "rain",
+    "sleet",
+    "snow",
+    "partly-cloudy-day-rain",
+    "partly-cloudy-day-snow",
+    "thunderstorms-day",
+    "thunderstorms-day-rain",
+];
+
+/// WMO weather_code → index into `WEATHER_ICON_NAMES`. Pure function.
+pub fn wmo_icon_index(code: i64) -> i32 {
+    match code {
+        0 | 1 => 0,       // clear-day
+        2 => 1,           // partly-cloudy-day
+        45 | 48 => 3,     // fog
+        51 | 53 | 55 => 4, // drizzle
+        56 | 57 | 66 | 67 => 6, // sleet (freezing drizzle/rain)
+        61 | 63 | 65 => 5, // rain
+        71 | 73 | 75 | 77 => 7, // snow
+        80 | 81 | 82 => 8, // partly-cloudy-day-rain (showers)
+        85 | 86 => 9,     // partly-cloudy-day-snow (showers)
+        95 => 10,         // thunderstorms-day
+        96 | 99 => 11,    // thunderstorms-day-rain
+        _ => 2,           // overcast-day fallback
+    }
+}
+
 /// Parse an Open-Meteo `forecast` JSON response into a `WeatherReport`. Pure
 /// function — covered by docs/test-vectors/weather-json/. `location_label`,
 /// `temperature_unit` and `fetched_at` come from the caller (config/clock),

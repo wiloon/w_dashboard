@@ -56,6 +56,28 @@ public func wmoDescription(_ code: Int) -> String {
     }
 }
 
+/// WMO weather_code -> SF Symbol name, for use with
+/// `.symbolRenderingMode(.multicolor)` (gives each symbol its natural
+/// weather coloring — yellow sun, blue rain, etc. — with no extra styling).
+/// Pure function.
+public func wmoSymbolName(_ code: Int) -> String {
+    switch code {
+    case 0, 1: return "sun.max.fill"
+    case 2: return "cloud.sun.fill"
+    case 3: return "cloud.fill"
+    case 45, 48: return "cloud.fog.fill"
+    case 51, 53, 55: return "cloud.drizzle.fill"
+    case 56, 57, 66, 67: return "cloud.sleet.fill"
+    case 61, 63, 65: return "cloud.rain.fill"
+    case 71, 73, 75, 77: return "cloud.snow.fill"
+    case 80, 81, 82: return "cloud.sun.rain.fill"
+    case 85, 86: return "cloud.snow.fill"
+    case 95: return "cloud.bolt.fill"
+    case 96, 99: return "cloud.bolt.rain.fill"
+    default: return "cloud.fill"
+    }
+}
+
 private func asDouble(_ v: Any?) -> Double? {
     (v as? NSNumber)?.doubleValue
 }

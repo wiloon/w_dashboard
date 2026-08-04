@@ -32,6 +32,7 @@ export struct WeatherDayRow {
     temp_min: string,
     description: string,
     precip: string,
+    icon_index: int,
 }
 
 export component AppWindow inherits Window {
@@ -71,8 +72,25 @@ export component AppWindow inherits Window {
     in-out property <string> weather_location: "";
     in-out property <string> weather_current_temp: "";
     in-out property <string> weather_current_desc: "";
+    in-out property <int> weather_current_icon_index: 0;
     in-out property <[WeatherDayRow]> weather_daily: [];
     in-out property <string> weather_error: "";
+
+    // Order must match `WEATHER_ICON_NAMES` in app-linux/src/weather.rs.
+    property <[image]> weather_icons: [
+        @image-url("icons/weather/clear-day.svg"),
+        @image-url("icons/weather/partly-cloudy-day.svg"),
+        @image-url("icons/weather/overcast-day.svg"),
+        @image-url("icons/weather/fog.svg"),
+        @image-url("icons/weather/drizzle.svg"),
+        @image-url("icons/weather/rain.svg"),
+        @image-url("icons/weather/sleet.svg"),
+        @image-url("icons/weather/snow.svg"),
+        @image-url("icons/weather/partly-cloudy-day-rain.svg"),
+        @image-url("icons/weather/partly-cloudy-day-snow.svg"),
+        @image-url("icons/weather/thunderstorms-day.svg"),
+        @image-url("icons/weather/thunderstorms-day-rain.svg"),
+    ];
 
     callback refresh();
     callback add_repo(string, string);
@@ -319,9 +337,15 @@ export component AppWindow inherits Window {
                             spacing: 6px;
                             HorizontalBox {
                                 padding: 0px;
-                                Text { text: weather_location; color: text-primary; font-weight: 700; }
+                                spacing: 8px;
+                                Image {
+                                    source: weather_icons[weather_current_icon_index];
+                                    width: 40px;
+                                    height: 40px;
+                                }
+                                Text { text: weather_location; color: text-primary; font-weight: 700; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; }
-                                Text { text: weather_current_temp; color: text-primary; font-size: 20px; font-weight: 700; }
+                                Text { text: weather_current_temp; color: text-primary; font-size: 20px; font-weight: 700; vertical-alignment: center; }
                             }
                             Text { text: weather_current_desc; color: text-secondary; }
                             if weather_error != "": Text {
@@ -338,6 +362,11 @@ export component AppWindow inherits Window {
                                     spacing: 2px;
                                     alignment: start;
                                     Text { text: day.date; color: text-secondary; font-size: 11px; }
+                                    Image {
+                                        source: weather_icons[day.icon_index];
+                                        width: 28px;
+                                        height: 28px;
+                                    }
                                     Text { text: day.description; color: text-tertiary; font-size: 11px; wrap: word-wrap; }
                                     Text { text: day.temp_max + " / " + day.temp_min; color: text-primary; font-size: 12px; }
                                     Text { text: day.precip; color: text-tertiary; font-size: 10px; }
