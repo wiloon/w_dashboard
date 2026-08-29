@@ -17,6 +17,10 @@ private func stateLabel(_ state: RepoState) -> String {
     }
 }
 
+/// Neutral badge for a row whose collection is still in flight (gray, same
+/// family as NoUpstream — "no verdict yet", per SDD §9 color semantics).
+private let pendingColor = Color(red: 0xb0 / 255, green: 0xb6 / 255, blue: 0xbd / 255)
+
 private func stateColor(_ state: RepoState) -> Color {
     switch state {
     case .clean: return Color(red: 0x4c / 255, green: 0xaf / 255, blue: 0x50 / 255)
@@ -44,7 +48,7 @@ struct RepoListView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(appState.repoStatuses.enumerated()), id: \.offset) { index, repo in
                         if index > 0 { Divider() }
-                        RepoRowView(repo: repo)
+                        RepoRowView(repo: repo, pending: appState.pendingRepoIndices.contains(index))
                     }
                 }
             }
@@ -56,6 +60,9 @@ struct RepoListView: View {
 
 private struct RepoRowView: View {
     let repo: RepoStatus
+    /// This row's collection is still running: show a neutral "Checking…"
+    /// badge rather than a state that may be stale (or not collected yet).
+    let pending: Bool
     @State private var expanded = false
 
     var body: some View {
@@ -64,11 +71,11 @@ private struct RepoRowView: View {
                 Text(repo.name).bold()
                 Text(repo.branch ?? "detached").foregroundStyle(.secondary).font(.subheadline)
                 Spacer()
-                Text(stateLabel(repo.state))
+                Text(pending ? "Checking…" : stateLabel(repo.state))
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(stateColor(repo.state).opacity(0.85))
+                    .background((pending ? pendingColor : stateColor(repo.state)).opacity(0.85))
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                 Button(expanded ? "Hide" : "Details") { expanded.toggle() }

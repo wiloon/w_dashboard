@@ -2,6 +2,10 @@
 // of app-linux/src/main.rs (spawn_collect_repos / spawn_collect_weather /
 // reload_and_refresh / timers), adapted to SwiftUI's async/await instead of
 // mpsc channels + a polling Slint timer.
+//
+// Repo collection is incremental (docs/sdd.md §8), like app-linux's worker
+// pool: repos are collected a few at a time and each row updates as soon as
+// its own result lands, instead of the whole list being replaced at the end.
 
 import Foundation
 import SwiftUI
@@ -23,6 +27,9 @@ final class AppState: ObservableObject {
     @Published var weatherError: String?
     @Published var weatherConfigured: Bool = false
     @Published var refreshing: Bool = false
+    /// Indices into `repoStatuses` whose collection is still running. Rows in
+    /// this set show a "Checking…" badge instead of a (stale) state badge.
+    @Published private(set) var pendingRepoIndices: Set<Int> = []
     @Published var lastUpdated: String = "never"
     @Published var repoFormError: String = ""
     @Published var configLoadError: String?
@@ -32,6 +39,18 @@ final class AppState: ObservableObject {
     private var started = false
     private var clockTimerTask: Task<Void, Never>?
     private var autoRefreshTask: Task<Void, Never>?
+    /// Bumped on every refresh; results carrying an older token are dropped so
+    /// a slow run cannot overwrite a newer one.
+    private var refreshToken = 0
+    /// Repos are collected off the main thread, a few at a time, so one slow
+    /// `git fetch` neither blocks the UI nor holds up the other rows.
+    private let repoQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "w_dashboard.repo-collect"
+        q.maxConcurrentOperationCount = 4
+        q.qualityOfService = .userInitiated
+        return q
+    }()
 
     init() {
         let path = defaultConfigPath()
@@ -57,18 +76,31 @@ final class AppState: ObservableObject {
     }
 
     func refresh() {
-        refreshing = true
         let repos = config.repos
         let fetchRemote = config.fetchRemote
         let timeout = TimeInterval(config.commandTimeoutSecs)
 
-        Task.detached(priority: .userInitiated) {
-            let statuses = repos.map { collectRepo(repo: $0, fetchRemote: fetchRemote, timeout: timeout) }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.repoStatuses = statuses
-                self.refreshing = false
-                self.lastUpdated = Self.lastUpdatedFormatter.string(from: Date())
+        refreshToken &+= 1
+        let token = refreshToken
+        repoQueue.cancelAllOperations()
+
+        // Seed the list in config order, carrying over whatever we already
+        // know about each repo, so rows appear immediately and are then
+        // replaced one by one as each collection finishes.
+        repoStatuses = repos.map { seededStatus(for: $0) }
+        pendingRepoIndices = Set(repoStatuses.indices)
+        refreshing = !repos.isEmpty
+
+        if repos.isEmpty {
+            lastUpdated = Self.lastUpdatedFormatter.string(from: Date())
+        }
+
+        for (index, repo) in repos.enumerated() {
+            repoQueue.addOperation { [weak self] in
+                let status = collectRepo(repo: repo, fetchRemote: fetchRemote, timeout: timeout)
+                Task { @MainActor in
+                    self?.apply(status: status, at: index, token: token)
+                }
             }
         }
 
@@ -87,6 +119,30 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Apply one repo's freshly collected status. Ignores results from a
+    /// superseded refresh, and flips `refreshing` off once the last row lands.
+    private func apply(status: RepoStatus, at index: Int, token: Int) {
+        guard token == refreshToken, repoStatuses.indices.contains(index) else { return }
+        repoStatuses[index] = status
+        pendingRepoIndices.remove(index)
+        lastUpdated = Self.lastUpdatedFormatter.string(from: Date())
+        if pendingRepoIndices.isEmpty {
+            refreshing = false
+        }
+    }
+
+    /// Placeholder row shown while a repo is being collected: the previous
+    /// status for the same path when we have one, otherwise a bare entry.
+    private func seededStatus(for repo: RepoConfig) -> RepoStatus {
+        let derivedName = repo.name ?? (repo.path as NSString).lastPathComponent
+        let name = derivedName.isEmpty ? repo.path : derivedName
+        if var previous = repoStatuses.first(where: { $0.path == repo.path }) {
+            previous.name = name
+            return previous
+        }
+        return RepoStatus(name: name, path: repo.path)
     }
 
     // ---------------- Repo management ----------------

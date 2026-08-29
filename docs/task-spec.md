@@ -4,6 +4,8 @@
 >
 > 顺序原则（见 ADR-002 / ADR-008）：**先把规格与测试向量做扎实，再让两端各自原生实现并行展开**；
 > 每端内部先做"采集层并通过共享测试向量"，再做 UI。两端不共享代码，靠同一份测试向量保证一致。
+>
+> M0–M4 是初始交付的里程碑；此后每一次影响行为或体验的变更，同样按"先改 ADR/SDD，再两端实现"追加为新的里程碑（M5 起）。
 
 ## 里程碑总览
 
@@ -14,6 +16,7 @@
 | M2 | app-linux（Rust + Slint）完整实现 | M1 |
 | M3 | app-macos（Swift + SwiftUI）完整实现 | M1 |
 | M4 | 两端一致性核对与打磨 | M2, M3 |
+| M5 | 刷新体验：仓库增量刷新 | M2, M3 |
 
 > **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
 
@@ -93,6 +96,31 @@
 - **T4.3** 错误路径走查：无网络、无 git、无 chezmoi、非法 tz、超大仓库列表性能。
 - **T4.4** 顶层 README 收尾（安装、配置、两端构建与运行）。
 - **验收**：两端结论一致且都过向量；常见异常均有可读降级；文档可让新机器从零跑起来。
+
+## M5 — 刷新体验：仓库增量刷新
+
+> 依据 [ADR-010](architecture/adr-010-incremental-repo-refresh.md) 与 [SDD §8.1](sdd.md)。
+> 纯 UI 层调度改动：`collect_repo` / `collectRepo` 及 §7 的解析与派生规则一个字不改，**不新增也不修改任何测试向量**。
+
+- **T5.1** 规格先行：写 ADR-010（为什么从"整批串行"改为"并发 + 增量"）、在 SDD §8 增加 §8.1 增量刷新契约（6 条规则）、§9 颜色语义补上"采集中=灰"。
+- **T5.2** app-linux 实现（`src/main.rs`）：
+  - channel 消息由 `Vec<RepoStatus>` 改为 `RepoUpdate { token, index, status }`，每采完一个即发送；
+  - `spawn_collect_repos` 改为最多 `REPO_WORKERS = 4` 的 worker 线程池（`AtomicUsize` 抢任务）；
+  - 新增 `RepoUi`（长期存在的 `VecModel<RepoRow>` + 代际 token + 未完成计数），`begin()` 种行、`apply()` 用 `set_row_data` 只重画一行；
+  - 轮询 timer 一个 tick 内 `while try_recv` 消费全部到达的结果；
+  - `.slint` 无需改动（徽标文案/颜色由 Rust 侧填入 `RepoRow`）。
+- **T5.3** app-macos 实现（`AppState.swift` / `RepoListView.swift`）：
+  - `refresh()` 先种 `repoStatuses` 并置 `pendingRepoIndices`，再按 4 并发的 `OperationQueue` 逐个采集；
+  - `apply(status:at:token:)` 回主线程写单行、按 token 丢弃过期结果、最后一行落地才清 `refreshing`；
+  - 行内 pending 时显示灰色 `Checking…` 徽标。
+- **T5.4** 一致性核对：两端对照 SDD §8.1 的 6 条规则逐条走查（并发上限、行序稳定、种子行、采集中徽标、代际 token、收尾语义）。
+- **验收**：
+  - 点刷新后**第一个**仓库的结果立即出现，不再等全部采完；
+  - 多仓库场景总耗时明显下降（开 `fetch_remote` 时约为原来的 1/4）；
+  - 一个卡到 `command_timeout_secs` 的仓库只让**自己那一行**停在"采集中"，其余行照常更新；
+  - 手动刷新与定时刷新叠加时，旧一轮结果不覆盖新一轮；
+  - 刷新期间行序始终等于配置顺序；
+  - 两端各自的既有测试仍全过（`cargo test` / `swift test`），测试向量无改动。
 
 ---
 
