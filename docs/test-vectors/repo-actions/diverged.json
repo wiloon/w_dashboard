@@ -1,0 +1,4 @@
+{
+  "input": "Diverged",
+  "expected": { "pull": false, "push": false, "fetch": true }
+}

@@ -19,4 +19,4 @@ UI 只负责：调用本端采集层接口、把耗时调用放到后台线程/�
 - 时钟是例外：纯展示逻辑，由 UI 自行按 IANA tz 渲染（时钟配置来自 config）。见 ADR-006。
 - 所有采集调用必须在后台线程/队列执行（Rust 后台线程、Swift `Task`/`DispatchQueue`），不得阻塞 UI 主线程。
 - 两端信息架构与状态颜色语义保持一致（绿=Clean，黄=NeedsPush/NeedsPull/Dirty，红=Diverged/Error，灰=NoUpstream/未配置）。
-- 不替用户执行 git/chezmoi 写操作（commit/push/pull/apply）。
+- git 写操作只做三个显式安全按钮：`pull --ff-only` / `push` / `fetch`（见 ADR-011、SDD §7.5）。不做 commit / 非 ff merge / rebase / 冲突解决 / stash，也不替用户执行 chezmoi apply。按钮显隐由采集层的纯函数 `allowed_actions` 决定（UI 只渲染），操作调用与线程调度归 UI 层。

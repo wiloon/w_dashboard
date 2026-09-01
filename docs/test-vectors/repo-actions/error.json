@@ -1,0 +1,4 @@
+{
+  "input": "Error",
+  "expected": { "pull": false, "push": false, "fetch": false }
+}

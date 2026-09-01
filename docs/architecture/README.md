@@ -18,6 +18,7 @@ Trade-offs（取舍）→ Consequences（后果与缓解）→ Revisit Trigger�
 | [ADR-008](adr-008-spec-as-source-of-truth.md) | 规格为单一事实来源，代码为可再生产物 | Accepted |
 | [ADR-009](adr-009-linux-gui-slint.md) | Linux 端 GUI 框架：改用 Slint，弃用 Iced/libcosmic | Accepted |
 | [ADR-010](adr-010-incremental-repo-refresh.md) | 仓库状态刷新：并发采集 + 逐行增量更新 | Accepted |
+| [ADR-011](adr-011-explicit-safe-git-actions.md) | 从纯只读放开到三个显式安全操作（pull --ff-only / push / fetch） | Accepted |
 
 ## 设计总原则
 

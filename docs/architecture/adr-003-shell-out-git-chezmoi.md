@@ -26,6 +26,7 @@ Accepted
 
 关键流程：
 - **git 状态**：`git fetch`（可控开关）→ 用 `git rev-list --left-right --count @{upstream}...HEAD` 取 ahead/behind → `git status --porcelain=v2 --branch` 取工作区脏状态与分支信息。
+- **git 同步操作**（见 ADR-011）：三个显式的安全写操作也走子进程——`git pull --ff-only` / `git push` / `git fetch --quiet`，同样复用用户凭据，同样设超时。
 - **chezmoi 状态**：`chezmoi status`（本机 home 与源状态的差异）+ 将 chezmoi 源目录视为一个 git 仓库，复用上面的 git 状态逻辑判断"未提交/未 push/需 pull"。
 
 ## Rationale

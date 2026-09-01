@@ -13,6 +13,12 @@ export struct RepoRow {
     untracked: int,
     conflicted: int,
     error: string,
+    can_pull: bool,
+    can_push: bool,
+    can_fetch: bool,
+    action_busy: bool,
+    action_note: string,
+    action_ok: bool,
 }
 
 export struct RepoEntry {
@@ -58,6 +64,9 @@ export component AppWindow inherits Window {
     in-out property <[RepoRow]> repos: [];
     in-out property <string> last_updated: "never";
     in-out property <bool> refreshing: false;
+    // general.fetch_remote: when true (default) every refresh already fetches
+    // each repo, so the manual per-row Fetch button is hidden. See SDD §7.5.
+    in-out property <bool> auto_fetch: true;
 
     in-out property <[RepoEntry]> repo_entries: [];
     in-out property <bool> show_manage_repos: false;
@@ -92,10 +101,14 @@ export component AppWindow inherits Window {
         @image-url("icons/weather/thunderstorms-day-rain.svg"),
     ];
 
+    property <color> ok-color: dark_mode ? #4caf50 : #2e7d32;
+
     callback refresh();
     callback add_repo(string, string);
     callback remove_repo(string);
     callback update_repo(string, string, string);
+    // (repo path, action) where action is "pull" | "push" | "fetch". See SDD §7.5.
+    callback repo_action(string, string);
 
     VerticalBox {
         padding: 14px;
@@ -250,6 +263,7 @@ export component AppWindow inherits Window {
                             HorizontalBox {
                                 padding: 0px;
                                 spacing: 8px;
+                                alignment: start;
                                 Rectangle {
                                     width: 10px;
                                     height: 10px;
@@ -261,12 +275,29 @@ export component AppWindow inherits Window {
                                     text: repo.name + "  (" + repo.branch + ")";
                                     font-weight: 700;
                                     color: text-primary;
+                                    vertical-alignment: center;
                                 }
                                 Rectangle { horizontal-stretch: 1; }
+                                if repo.error == "" && repo.can_pull: Button {
+                                    text: repo.action_busy ? "Pulling..." : "Pull";
+                                    enabled: !repo.action_busy && !refreshing;
+                                    clicked => { repo_action(repo.path, "pull"); }
+                                }
+                                if repo.error == "" && repo.can_push: Button {
+                                    text: repo.action_busy ? "Pushing..." : "Push";
+                                    enabled: !repo.action_busy && !refreshing;
+                                    clicked => { repo_action(repo.path, "push"); }
+                                }
+                                if repo.error == "" && repo.can_fetch && !auto_fetch: Button {
+                                    text: repo.action_busy ? "Fetching..." : "Fetch";
+                                    enabled: !repo.action_busy && !refreshing;
+                                    clicked => { repo_action(repo.path, "fetch"); }
+                                }
                                 Text {
                                     text: repo.state_label;
                                     color: repo.state_color;
                                     font-weight: 700;
+                                    vertical-alignment: center;
                                 }
                             }
                             Text {
@@ -286,6 +317,12 @@ export component AppWindow inherits Window {
                                     + " · untracked " + repo.untracked + " · conflicted " + repo.conflicted;
                                 font-size: 12px;
                                 color: text-tertiary;
+                            }
+                            if repo.action_note != "": Text {
+                                text: repo.action_note;
+                                color: repo.action_ok ? ok-color : error-color;
+                                font-size: 12px;
+                                wrap: word-wrap;
                             }
                         }
                     }

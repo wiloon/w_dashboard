@@ -30,4 +30,4 @@ open dist/WDashboard.app
 
 ## 当前范围
 
-对齐 `app-linux` 当前实现：Repos（含仓库增删改）、Clocks、Weather 三分区。chezmoi 面板尚未在两端任一侧实现，留待后续里程碑两端同步做（见 `../docs/task-spec.md`）。
+对齐 `app-linux` 当前实现：Repos（含仓库增删改，以及 Pull / Push / Fetch 同步操作按钮，见 SDD §7.5 / ADR-011）、Clocks、Weather 三分区。chezmoi 面板尚未在两端任一侧实现，留待后续里程碑两端同步做（见 `../docs/task-spec.md`）。

@@ -48,7 +48,10 @@ struct RepoListView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(appState.repoStatuses.enumerated()), id: \.offset) { index, repo in
                         if index > 0 { Divider() }
-                        RepoRowView(repo: repo, pending: appState.pendingRepoIndices.contains(index))
+                        RepoRowView(
+                            repo: repo,
+                            pending: appState.pendingRepoIndices.contains(index)
+                        )
                     }
                 }
             }
@@ -59,18 +62,25 @@ struct RepoListView: View {
 }
 
 private struct RepoRowView: View {
+    @EnvironmentObject var appState: AppState
     let repo: RepoStatus
     /// This row's collection is still running: show a neutral "Checking…"
     /// badge rather than a state that may be stale (or not collected yet).
     let pending: Bool
     @State private var expanded = false
 
+    private var busy: Bool { appState.repoActionBusyPaths.contains(repo.path) }
+    private var actionsDisabled: Bool { busy || appState.refreshing }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 6) {
                 Text(repo.name).bold()
                 Text(repo.branch ?? "detached").foregroundStyle(.secondary).font(.subheadline)
                 Spacer()
+                if !pending && (repo.error?.isEmpty ?? true) {
+                    actionButtons
+                }
                 Text(pending ? "Checking…" : stateLabel(repo.state))
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
@@ -81,6 +91,11 @@ private struct RepoRowView: View {
                 Button(expanded ? "Hide" : "Details") { expanded.toggle() }
                     .buttonStyle(.borderless)
                     .font(.caption)
+            }
+            if let result = appState.repoActionResults[repo.path] {
+                Text(result.ok ? result.summary : (result.error ?? "action failed"))
+                    .font(.caption)
+                    .foregroundStyle(result.ok ? .green : .red)
             }
             if expanded {
                 Text(
@@ -100,5 +115,35 @@ private struct RepoRowView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// Pull / Push / Fetch buttons per docs/sdd.md §7.5, shown by
+    /// `allowedActions(repo.state)`; disabled while this row's action runs or a
+    /// full refresh is in flight. Sits inline on the repo's name row.
+    @ViewBuilder
+    private var actionButtons: some View {
+        let allowed = allowedActions(repo.state)
+        if allowed.pull {
+            Button(busy ? "Pulling…" : "Pull") { appState.repoAction(path: repo.path, action: .pull) }
+                .disabled(actionsDisabled)
+                .tint(.accentColor)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        if allowed.push {
+            Button(busy ? "Pushing…" : "Push") { appState.repoAction(path: repo.path, action: .push) }
+                .disabled(actionsDisabled)
+                .tint(.accentColor)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        // When `general.fetch_remote` is on (default), every refresh already
+        // fetches each repo, so the manual Fetch button is redundant (SDD §7.5).
+        if allowed.fetch && !appState.config.fetchRemote {
+            Button(busy ? "Fetching…" : "Fetch") { appState.repoAction(path: repo.path, action: .fetch) }
+                .disabled(actionsDisabled)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
     }
 }

@@ -136,6 +136,153 @@ pub fn derive_state(input: &DeriveInput) -> RepoState {
     RepoState::Clean
 }
 
+/// One of the three explicit, safe sync operations offered per repo
+/// (docs/sdd.md §7.5, ADR-011). Nothing here can leave a repo in a state that
+/// needs manual cleanup: `pull` is fast-forward-only, `push` only fails
+/// cleanly, `fetch` never touches the work tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepoAction {
+    Pull,
+    Push,
+    Fetch,
+}
+
+impl RepoAction {
+    pub fn parse(s: &str) -> Option<RepoAction> {
+        match s {
+            "pull" => Some(RepoAction::Pull),
+            "push" => Some(RepoAction::Push),
+            "fetch" => Some(RepoAction::Fetch),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RepoAction::Pull => "pull",
+            RepoAction::Push => "push",
+            RepoAction::Fetch => "fetch",
+        }
+    }
+}
+
+/// Which action buttons a row should offer, given its summary `RepoState`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AllowedActions {
+    pub pull: bool,
+    pub push: bool,
+    pub fetch: bool,
+}
+
+/// Pure function mapping `RepoState` to the offered actions, per the table in
+/// docs/sdd.md §7.5. Covered by docs/test-vectors/repo-actions/.
+pub fn allowed_actions(state: RepoState) -> AllowedActions {
+    match state {
+        RepoState::Error => AllowedActions { pull: false, push: false, fetch: false },
+        RepoState::NeedsPull => AllowedActions { pull: true, push: false, fetch: true },
+        RepoState::NeedsPush => AllowedActions { pull: false, push: true, fetch: true },
+        // Clean / Dirty / Diverged / NoUpstream: fetch only.
+        _ => AllowedActions { pull: false, push: false, fetch: true },
+    }
+}
+
+/// Outcome of a `run_repo_action` call. `summary` is a one-line message for the
+/// UI on success; `error` carries git's stderr first line on failure.
+#[derive(Debug, Clone)]
+pub struct GitActionResult {
+    pub action: RepoAction,
+    pub ok: bool,
+    pub summary: String,
+    pub error: Option<String>,
+}
+
+fn first_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn last_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .rev()
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn truncate_message(mut s: String) -> String {
+    const MAX: usize = 160;
+    if s.chars().count() > MAX {
+        s = s.chars().take(MAX - 1).collect::<String>();
+        s.push('…');
+    }
+    s
+}
+
+/// Run one explicit sync operation on a repo (docs/sdd.md §7.5). Side-effecting
+/// and network-bound; never panics. `pull` is `--ff-only` so a non-fast-forward
+/// simply fails without changing anything.
+pub fn run_repo_action(
+    repo: &RepoConfig,
+    action: RepoAction,
+    timeout: Duration,
+) -> GitActionResult {
+    let args: &[&str] = match action {
+        RepoAction::Pull => &["pull", "--ff-only"],
+        RepoAction::Push => &["push"],
+        RepoAction::Fetch => &["fetch", "--quiet"],
+    };
+
+    match run_git(&repo.path, args, timeout) {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if out.status.success() {
+                let mut summary = last_line(&stdout);
+                if summary.is_empty() {
+                    summary = last_line(&stderr);
+                }
+                if summary.is_empty() {
+                    summary = match action {
+                        RepoAction::Pull => "Already up to date".to_string(),
+                        RepoAction::Push => "Everything up-to-date".to_string(),
+                        RepoAction::Fetch => "Fetched".to_string(),
+                    };
+                }
+                GitActionResult {
+                    action,
+                    ok: true,
+                    summary: truncate_message(summary),
+                    error: None,
+                }
+            } else {
+                let mut err = first_line(&stderr);
+                if err.is_empty() {
+                    err = first_line(&stdout);
+                }
+                if err.is_empty() {
+                    err = format!("git {} failed", action.as_str());
+                }
+                GitActionResult {
+                    action,
+                    ok: false,
+                    summary: String::new(),
+                    error: Some(truncate_message(err)),
+                }
+            }
+        }
+        Err(e) => GitActionResult {
+            action,
+            ok: false,
+            summary: String::new(),
+            error: Some(e.to_string()),
+        },
+    }
+}
+
 fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

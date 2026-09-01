@@ -39,7 +39,7 @@ w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立�
 1. **不引入后端 / 数据库 / 网络服务**（天气直接调公网 API 除外）。见 ADR-001。"上报到服务端"是未来演进，当前不做。
 2. **规格是唯一事实来源**：git/chezmoi/天气/配置的逻辑由 SDD 定义；两端各自实现，**不得**让任一端的代码成为另一端的"真相"。见 ADR-002/008。
 3. **两端一致靠测试向量**：解析与派生（git porcelain、`RepoState`、chezmoi status、weather JSON、WMO 映射）必须通过 `docs/test-vectors/` 的同一份用例。改了行为就要改向量。
-4. **只读，不写**：本应用**不替用户执行** git commit/push/pull 或 chezmoi apply。仅采集与展示状态。
+4. **以只读为主，写操作严格受限**：git 写操作只做三个显式的安全同步按钮——`pull --ff-only` / `push` / `fetch`（见 ADR-011、SDD §7.5）。**不做** commit / 非 ff 的 merge / rebase / 冲突解决 / stash / `push --force`，也不替用户执行 chezmoi apply。
 5. **git/chezmoi 通过子进程调用**（复用用户凭据），不用 `git2`/`gix`。优先 `--porcelain` 等机器可读格式。见 ADR-003。
 6. **单项失败不拖垮整体**：`collect_snapshot` 永远返回快照，失败信息落到对应字段的 `error`，UI 局部降级。
 7. **采集层与 UI 分层**：每端内部把"采集逻辑"与"UI"解耦；异步/线程调度归 UI 层（Rust 后台线程、Swift `Task`/`DispatchQueue`）。

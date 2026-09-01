@@ -106,6 +106,44 @@ final class VectorTests: XCTestCase {
         }
     }
 
+    func testRepoActionsVectors() throws {
+        struct Expected: Decodable {
+            var pull: Bool
+            var push: Bool
+            var fetch: Bool
+        }
+        struct Vector: Decodable {
+            var input: String
+            var expected: Expected
+        }
+
+        func state(from s: String, file: String) -> RepoState? {
+            switch s {
+            case "Clean": return .clean
+            case "Dirty": return .dirty
+            case "NeedsPush": return .needsPush
+            case "NeedsPull": return .needsPull
+            case "Diverged": return .diverged
+            case "NoUpstream": return .noUpstream
+            case "Error": return .error
+            default:
+                XCTFail("unknown state \(s) in \(file)")
+                return nil
+            }
+        }
+
+        for file in try vectorFiles("repo-actions") {
+            let data = try Data(contentsOf: file)
+            let vector = try JSONDecoder().decode(Vector.self, from: data)
+            guard let st = state(from: vector.input, file: file.lastPathComponent) else { continue }
+            let actions = allowedActions(st)
+            let name = file.lastPathComponent
+            XCTAssertEqual(actions.pull, vector.expected.pull, "pull mismatch in \(name)")
+            XCTAssertEqual(actions.push, vector.expected.push, "push mismatch in \(name)")
+            XCTAssertEqual(actions.fetch, vector.expected.fetch, "fetch mismatch in \(name)")
+        }
+    }
+
     func testWmoCodesVectors() throws {
         let file = repoRoot.appendingPathComponent("docs/test-vectors/wmo-codes/mapping.json")
         let data = try Data(contentsOf: file)

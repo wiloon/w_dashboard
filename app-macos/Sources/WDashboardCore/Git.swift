@@ -132,6 +132,114 @@ private func nowUnix() -> Int64 {
     Int64(Date().timeIntervalSince1970)
 }
 
+// MARK: - Explicit safe sync actions (docs/sdd.md §7.5, ADR-011)
+
+/// One of the three explicit, safe sync operations offered per repo. Nothing
+/// here can leave a repo needing manual cleanup: `pull` is fast-forward-only,
+/// `push` only fails cleanly, `fetch` never touches the work tree.
+public enum RepoAction: String, Sendable {
+    case pull
+    case push
+    case fetch
+}
+
+/// Which action buttons a row should offer, given its summary `RepoState`.
+public struct AllowedActions: Equatable, Sendable {
+    public var pull: Bool
+    public var push: Bool
+    public var fetch: Bool
+
+    public init(pull: Bool, push: Bool, fetch: Bool) {
+        self.pull = pull
+        self.push = push
+        self.fetch = fetch
+    }
+}
+
+/// Pure function mapping `RepoState` to the offered actions, per the table in
+/// docs/sdd.md §7.5. Covered by docs/test-vectors/repo-actions/.
+public func allowedActions(_ state: RepoState) -> AllowedActions {
+    switch state {
+    case .error:
+        return AllowedActions(pull: false, push: false, fetch: false)
+    case .needsPull:
+        return AllowedActions(pull: true, push: false, fetch: true)
+    case .needsPush:
+        return AllowedActions(pull: false, push: true, fetch: true)
+    case .clean, .dirty, .diverged, .noUpstream:
+        return AllowedActions(pull: false, push: false, fetch: true)
+    }
+}
+
+/// Outcome of a `runRepoAction` call. `summary` is a one-line message for the
+/// UI on success; `error` carries git's stderr first line on failure.
+public struct GitActionResult: Sendable {
+    public var action: RepoAction
+    public var ok: Bool
+    public var summary: String
+    public var error: String?
+
+    public init(action: RepoAction, ok: Bool, summary: String, error: String?) {
+        self.action = action
+        self.ok = ok
+        self.summary = summary
+        self.error = error
+    }
+}
+
+private func firstLine(_ text: String) -> String {
+    text.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .first { !$0.isEmpty } ?? ""
+}
+
+private func lastLine(_ text: String) -> String {
+    text.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .last { !$0.isEmpty } ?? ""
+}
+
+private func truncatedMessage(_ s: String) -> String {
+    let maxLen = 160
+    guard s.count > maxLen else { return s }
+    return String(s.prefix(maxLen - 1)) + "…"
+}
+
+/// Run one explicit sync operation on a repo (docs/sdd.md §7.5). Side-effecting
+/// and network-bound; never throws. `pull` is `--ff-only` so a non-fast-forward
+/// simply fails without changing anything.
+public func runRepoAction(repo: RepoConfig, action: RepoAction, timeout: TimeInterval) -> GitActionResult {
+    let extra: [String]
+    switch action {
+    case .pull: extra = ["pull", "--ff-only"]
+    case .push: extra = ["push"]
+    case .fetch: extra = ["fetch", "--quiet"]
+    }
+
+    do {
+        let result = try runProcess("git", args: ["-C", repo.path] + extra, timeout: timeout)
+        if result.succeeded {
+            var summary = lastLine(result.stdout)
+            if summary.isEmpty { summary = lastLine(result.stderr) }
+            if summary.isEmpty {
+                switch action {
+                case .pull: summary = "Already up to date"
+                case .push: summary = "Everything up-to-date"
+                case .fetch: summary = "Fetched"
+                }
+            }
+            return GitActionResult(action: action, ok: true, summary: truncatedMessage(summary), error: nil)
+        } else {
+            var err = firstLine(result.stderr)
+            if err.isEmpty { err = firstLine(result.stdout) }
+            if err.isEmpty { err = "git \(action.rawValue) failed" }
+            return GitActionResult(action: action, ok: false, summary: "", error: truncatedMessage(err))
+        }
+    } catch {
+        return GitActionResult(action: action, ok: false, summary: "", error: "\(error)")
+    }
+}
+
 /// Collect one repo's status per docs/sdd.md §7.1, then derive its state via
 /// §7.2. Never throws; all failures land in `RepoStatus.error`.
 public func collectRepo(repo: RepoConfig, fetchRemote: Bool, timeout: TimeInterval) -> RepoStatus {

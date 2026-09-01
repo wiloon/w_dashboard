@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::Value;
 
-use w_dashboard_linux::git::{derive_state, parse_porcelain_v2, DeriveInput};
+use w_dashboard_linux::git::{allowed_actions, derive_state, parse_porcelain_v2, DeriveInput};
 use w_dashboard_linux::model::RepoState;
 use w_dashboard_linux::weather::{parse_forecast_json, wmo_description, wmo_icon_index, WEATHER_ICON_NAMES};
 
@@ -124,6 +124,37 @@ fn repo_state_vectors() {
         };
         let expected = state_from_str(&vector.expected, &path);
         assert_eq!(derive_state(&input), expected, "state mismatch in {path:?}");
+    }
+}
+
+#[derive(Deserialize)]
+struct RepoActionsVector {
+    input: String,
+    expected: ExpectedActions,
+}
+
+#[derive(Deserialize)]
+struct ExpectedActions {
+    pull: bool,
+    push: bool,
+    fetch: bool,
+}
+
+#[test]
+fn repo_actions_vectors() {
+    let dir = vectors_dir("repo-actions");
+    let files = json_files(&dir);
+    assert!(!files.is_empty(), "no repo-actions vectors found in {dir:?}");
+
+    for path in files {
+        let text = fs::read_to_string(&path).unwrap();
+        let vector: RepoActionsVector =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let state = state_from_str(&vector.input, &path);
+        let actions = allowed_actions(state);
+        assert_eq!(actions.pull, vector.expected.pull, "pull mismatch in {path:?}");
+        assert_eq!(actions.push, vector.expected.push, "push mismatch in {path:?}");
+        assert_eq!(actions.fetch, vector.expected.fetch, "fetch mismatch in {path:?}");
     }
 }
 

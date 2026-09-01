@@ -1,0 +1,4 @@
+{
+  "input": "NeedsPull",
+  "expected": { "pull": true, "push": false, "fetch": true }
+}

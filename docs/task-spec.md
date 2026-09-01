@@ -17,6 +17,7 @@
 | M3 | app-macos（Swift + SwiftUI）完整实现 | M1 |
 | M4 | 两端一致性核对与打磨 | M2, M3 |
 | M5 | 刷新体验：仓库增量刷新 | M2, M3 |
+| M6 | 仓库同步操作：Pull / Push / Fetch 按钮 | M2, M3 |
 
 > **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
 
@@ -122,6 +123,34 @@
   - 刷新期间行序始终等于配置顺序；
   - 两端各自的既有测试仍全过（`cargo test` / `swift test`），测试向量无改动。
 
+## M6 — 仓库同步操作：Pull / Push / Fetch 按钮
+
+> 依据 [ADR-011](architecture/adr-011-explicit-safe-git-actions.md) 与 [SDD §7.5](sdd.md)。
+> 从"纯只读"放开到三个**显式的安全同步操作**；`allowed_actions`（状态→按钮显隐）是纯函数、进测试向量，
+> 三个操作本身有副作用、走网络，只做 e2e 冒烟。§7.1/§7.2 的采集与派生规则一个字不改。
+
+- **T6.1** 规格先行：写 ADR-011；SDD §6 加 `allowed_actions` / `run_repo_action` / `GitActionResult`，§7 新增 §7.5（命令 + 显隐表 + 执行语义），§8.1 补"操作后定向单行重采"，§9 Repos 补操作按钮，§10.2 加 `repo-actions/` 类别，§12 非目标条目改为精确表述；同步 `AGENTS.md` 核心约束 #4 与 `.cursor/rules/ui-no-logic.mdc`。
+- **T6.2** 测试向量：`docs/test-vectors/repo-actions/` 覆盖 §7.5 显隐表 7 个状态（`clean` / `needs-pull` / `needs-push` / `diverged` / `dirty` / `no-upstream` / `error`），格式 `{ "input": "<RepoState>", "expected": { "pull": bool, "push": bool, "fetch": bool } }`。两端契约测试各加一个 `repo-actions` 用例。
+- **T6.3** app-linux 实现：
+  - `src/git.rs`：`RepoAction` 枚举、`GitActionResult`、纯函数 `allowed_actions(RepoState)`、副作用函数 `run_repo_action(&RepoConfig, RepoAction, Duration)`（`pull --ff-only` / `push` / `fetch --quiet`，复用 `run_git` 封装）。
+  - `ui/app-window.slint`：`RepoRow` 加 `can_pull` / `can_push` / `can_fetch` / `action_busy` / `action_note` / `action_ok`；窗口加 `auto_fetch` 属性（Fetch 按钮显隐条件 `can_fetch && !auto_fetch`）；repo 卡片加按钮行 + 结果文本；新增 `callback repo_action(string, string)`。
+  - `src/main.rs`：`repo_row_from_status` 填 `can_*`（调 `git::allowed_actions`）；`start_repo_refresh` 每次 `ui.set_auto_fetch(cfg.fetch_remote)`；新增 `mpsc` 通道 `RepoActionUpdate { path, result, status }`；`on_repo_action` 标记该行 busy → 后台线程跑 `run_repo_action` 然后 `collect_repo` → 回主线程按 `path` 定位并回填该行 + 写 `action_note`；操作按钮在 `refreshing` 或该行 `action_busy` 时禁用。
+  - `tests/vectors.rs` 加 `repo_actions_vectors`；`tests/` 加一个 e2e 冒烟（临时 bare remote + 克隆，制造 behind/ahead，跑 Pull/Push）。
+- **T6.4** app-macos 实现（对齐同一套语义）：
+  - `Sources/WDashboardCore/Git.swift`：`RepoAction`、`GitActionResult`、`allowedActions(_:)`、`runRepoAction(repo:action:timeout:)`。
+  - `Sources/WDashboardApp/AppState.swift`：`repoAction(path:action:)` — 用 `repoQueue` 跑操作 + 重采，主线程按 `path` 回填行；`Set<String>` 记 busy 行、`[String:GitActionResult]` 记结果。
+  - `Sources/WDashboardApp/RepoListView.swift`：按 `allowedActions(repo.state)` 显示按钮（Fetch 额外要求 `!appState.config.fetchRemote`），busy / refreshing 时禁用，行内显示结果。
+  - `Tests/WDashboardCoreTests/VectorTests.swift` 加 `testRepoActionsVectors`；加一个 e2e 冒烟。
+- **T6.5** 一致性核对：两端对照 §7.5 逐条走查——显隐表 7 行、三个命令、执行语义 7 条（后台执行 / 仅限允许 / 操作后重采该行 / 结果提示与清除时机 / 失败降级 / 与整体刷新的关系 / Fetch 按钮渲染条件）。
+- **验收**：
+  - `NeedsPull` 仓库点 Pull 后，该行自动变为 `Clean`，行内显示 `Fast-forwarded …`；
+  - `NeedsPush` 仓库点 Push 后变为 `Clean`；
+  - 默认 `fetch_remote == true` 时不出现 Fetch 按钮（刷新已自动 fetch）；设 `fetch_remote = false` 后，除 `Error` 外每行出现 Fetch 按钮；
+  - `Diverged` / `Dirty` / `NoUpstream` 不显示 Pull / Push；`Error` 无任何按钮；
+  - `pull --ff-only` 在不能快进时干净失败，工作区与 HEAD 不变，行内显示 stderr 首行；
+  - 操作期间该行按钮禁用、显示进行中文案；操作只影响该行，其余行照常；
+  - 两端 `repo-actions` 向量全过，既有 `cargo test` / `swift test` 全过，向量除新增 `repo-actions/` 外无改动。
+
 ---
 
 ## 验收基线（贯穿所有里程碑）
@@ -134,4 +163,5 @@
 
 ## 当前阶段不做（与 SDD §12 一致）
 
-后端/服务端、跨机汇总、Web 端、git 写操作、历史/告警、多用户/鉴权、共享二进制 core / FFI。
+后端/服务端、跨机汇总、Web 端、历史/告警、多用户/鉴权、共享二进制 core / FFI。
+git 写操作只做 `pull --ff-only` / `push` / `fetch` 三个显式安全操作（M6、ADR-011）；不做 commit / merge / rebase / 冲突解决 / stash 等。

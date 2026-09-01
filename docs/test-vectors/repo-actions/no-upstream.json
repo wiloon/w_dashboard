@@ -1,0 +1,4 @@
+{
+  "input": "NoUpstream",
+  "expected": { "pull": false, "push": false, "fetch": true }
+}

@@ -25,6 +25,7 @@ fn state_label_color(state: RepoState) -> (&'static str, Color) {
 
 fn repo_row_from_status(s: &RepoStatus) -> RepoRow {
     let (label, color) = state_label_color(s.state);
+    let actions = git::allowed_actions(s.state);
     RepoRow {
         name: s.name.clone().into(),
         path: s.path.clone().into(),
@@ -42,6 +43,12 @@ fn repo_row_from_status(s: &RepoStatus) -> RepoRow {
         untracked: s.untracked as i32,
         conflicted: s.conflicted as i32,
         error: s.error.clone().unwrap_or_default().into(),
+        can_pull: actions.pull,
+        can_push: actions.push,
+        can_fetch: actions.fetch,
+        action_busy: false,
+        action_note: SharedString::default(),
+        action_ok: false,
     }
 }
 
@@ -63,6 +70,25 @@ struct RepoUpdate {
     token: u64,
     index: usize,
     status: RepoStatus,
+}
+
+/// Result of a per-repo sync action (docs/sdd.md §7.5): the action outcome plus
+/// a fresh status collected right after, so the row's badge reflects the new
+/// state. Routed to the row by `path` (config order may have changed).
+struct RepoActionUpdate {
+    path: String,
+    result: git::GitActionResult,
+    status: RepoStatus,
+}
+
+/// Find the row index whose `path` matches, if any.
+fn row_index_by_path(model: &VecModel<RepoRow>, path: &str) -> Option<usize> {
+    (0..model.row_count()).find(|&i| {
+        model
+            .row_data(i)
+            .map(|r| r.path.as_str() == path)
+            .unwrap_or(false)
+    })
 }
 
 /// How many repos are collected in parallel. Each worker blocks on git
@@ -132,6 +158,10 @@ impl RepoUi {
         row.path = path.into();
         row.state_label = "Checking...".into();
         row.state_color = pending_color();
+        // A full refresh clears any lingering per-row action result (SDD §7.5).
+        row.action_busy = false;
+        row.action_note = SharedString::default();
+        row.action_ok = false;
         row
     }
 
@@ -192,6 +222,8 @@ fn start_repo_refresh(
         return;
     };
     let guard = shared_cfg.lock().unwrap();
+    // Hide the per-row Fetch button when refreshes already fetch (SDD §7.5).
+    ui.set_auto_fetch(guard.fetch_remote);
     let token = repo_ui.begin(&ui, &guard.repos);
     spawn_collect_repos(
         guard.repos.clone(),
@@ -301,6 +333,7 @@ fn main() -> anyhow::Result<()> {
 
     // ---------------- Repos ----------------
     let (tx, rx) = mpsc::channel::<RepoUpdate>();
+    let (action_tx, action_rx) = mpsc::channel::<RepoActionUpdate>();
     // One long-lived model, so a finished repo can repaint its own row
     // instead of the whole list being replaced at the end of a refresh.
     let repo_ui = RepoUi::new();
@@ -326,6 +359,30 @@ fn main() -> anyhow::Result<()> {
             if let Some(ui) = ui_weak.upgrade() {
                 poll_repo_ui.apply(&ui, update);
             }
+        }
+        // Per-repo action results: repaint just the acted-on row with its fresh
+        // status, then overlay the one-line action message (SDD §7.5).
+        while let Ok(update) = action_rx.try_recv() {
+            let Some(ui) = ui_weak.upgrade() else { continue };
+            let Some(idx) = row_index_by_path(&poll_repo_ui.model, &update.path) else {
+                continue;
+            };
+            let mut row = repo_row_from_status(&update.status);
+            row.action_busy = false;
+            if update.result.ok {
+                row.action_ok = true;
+                row.action_note = update.result.summary.clone().into();
+            } else {
+                row.action_ok = false;
+                row.action_note = update
+                    .result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "action failed".to_string())
+                    .into();
+            }
+            poll_repo_ui.model.set_row_data(idx, row);
+            ui.set_last_updated(now_hms().into());
         }
     });
 
@@ -415,6 +472,59 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+        });
+    }
+
+    {
+        // One of the three explicit safe sync actions (SDD §7.5): mark the row
+        // busy, run the git command on a background thread, re-collect that
+        // repo, and route the result back by path.
+        let shared_cfg = shared_cfg.clone();
+        let repo_ui = repo_ui.clone();
+        let action_tx = action_tx.clone();
+        ui.on_repo_action(move |raw_path, raw_action| {
+            let Some(action) = git::RepoAction::parse(raw_action.as_str()) else {
+                return;
+            };
+            let path = raw_path.to_string();
+
+            let Some(idx) = row_index_by_path(&repo_ui.model, &path) else {
+                return;
+            };
+            let Some(mut row) = repo_ui.model.row_data(idx) else {
+                return;
+            };
+            if row.action_busy {
+                return;
+            }
+            row.action_busy = true;
+            row.action_note = SharedString::default();
+            repo_ui.model.set_row_data(idx, row);
+
+            let (repo_cfg, timeout) = {
+                let guard = shared_cfg.lock().unwrap();
+                let repo_cfg = guard
+                    .repos
+                    .iter()
+                    .find(|r| r.path.display().to_string() == path)
+                    .cloned();
+                (repo_cfg, Duration::from_secs(guard.command_timeout_secs))
+            };
+            let Some(repo_cfg) = repo_cfg else {
+                return;
+            };
+
+            let action_tx = action_tx.clone();
+            std::thread::spawn(move || {
+                let result = git::run_repo_action(&repo_cfg, action, timeout);
+                // fetch_remote=false: pull/push/fetch already refreshed refs.
+                let status = git::collect_repo(&repo_cfg, false, timeout);
+                let _ = action_tx.send(RepoActionUpdate {
+                    path: repo_cfg.path.display().to_string(),
+                    result,
+                    status,
+                });
+            });
         });
     }
 

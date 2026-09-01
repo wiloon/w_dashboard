@@ -30,6 +30,12 @@ final class AppState: ObservableObject {
     /// Indices into `repoStatuses` whose collection is still running. Rows in
     /// this set show a "Checking…" badge instead of a (stale) state badge.
     @Published private(set) var pendingRepoIndices: Set<Int> = []
+    /// Repo paths whose Pull/Push/Fetch action is currently running. Those rows
+    /// show a progress label and disabled buttons (docs/sdd.md §7.5).
+    @Published private(set) var repoActionBusyPaths: Set<String> = []
+    /// Last action result per repo path, shown inline until the next full
+    /// refresh clears it.
+    @Published private(set) var repoActionResults: [String: GitActionResult] = [:]
     @Published var lastUpdated: String = "never"
     @Published var repoFormError: String = ""
     @Published var configLoadError: String?
@@ -83,6 +89,10 @@ final class AppState: ObservableObject {
         refreshToken &+= 1
         let token = refreshToken
         repoQueue.cancelAllOperations()
+
+        // A full refresh clears any lingering per-row action state (SDD §7.5).
+        repoActionBusyPaths.removeAll()
+        repoActionResults.removeAll()
 
         // Seed the list in config order, carrying over whatever we already
         // know about each repo, so rows appear immediately and are then
@@ -143,6 +153,39 @@ final class AppState: ObservableObject {
             return previous
         }
         return RepoStatus(name: name, path: repo.path)
+    }
+
+    // ---------------- Repo sync actions (SDD §7.5) ----------------
+
+    /// Run one explicit safe action (Pull / Push / Fetch) on the repo at
+    /// `path`: mark the row busy, run the git command off the main thread,
+    /// re-collect that repo, then update the row and show a one-line result.
+    func repoAction(path: String, action: RepoAction) {
+        guard !repoActionBusyPaths.contains(path) else { return }
+        guard let repo = config.repos.first(where: { $0.path == path }) else { return }
+        let timeout = TimeInterval(config.commandTimeoutSecs)
+
+        repoActionBusyPaths.insert(path)
+        repoActionResults.removeValue(forKey: path)
+
+        repoQueue.addOperation { [weak self] in
+            let result = runRepoAction(repo: repo, action: action, timeout: timeout)
+            // fetchRemote=false: pull/push/fetch already refreshed refs.
+            let status = collectRepo(repo: repo, fetchRemote: false, timeout: timeout)
+            Task { @MainActor in
+                self?.applyAction(result: result, status: status, path: path)
+            }
+        }
+    }
+
+    private func applyAction(result: GitActionResult, status: RepoStatus, path: String) {
+        repoActionBusyPaths.remove(path)
+        repoActionResults[path] = result
+        if let index = repoStatuses.firstIndex(where: { $0.path == path }) {
+            repoStatuses[index] = status
+            pendingRepoIndices.remove(index)
+        }
+        lastUpdated = Self.lastUpdatedFormatter.string(from: Date())
     }
 
     // ---------------- Repo management ----------------

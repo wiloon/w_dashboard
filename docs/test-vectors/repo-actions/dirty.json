@@ -1,0 +1,4 @@
+{
+  "input": "Dirty",
+  "expected": { "pull": false, "push": false, "fetch": true }
+}

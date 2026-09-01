@@ -250,7 +250,19 @@ fetch_weather(config: Config) -> WeatherReport | WeatherError
 
 check_environment() -> { git: string?, chezmoi: string? }
     探测 git/chezmoi 是否可用及版本，None/空 表示未找到。
+
+allowed_actions(state: RepoState) -> { pull: bool, push: bool, fetch: bool }
+    纯函数：给定仓库汇总状态，返回该显示哪些操作按钮（见 §7.5）。
+    由 repo-actions 测试向量锁定（§10）。
+
+run_repo_action(repo: RepoConfig, action: RepoAction) -> GitActionResult
+    执行一个显式的安全同步操作（见 §7.5、ADR-011）。RepoAction ∈ { Pull, Push, Fetch }。
+    有副作用、走网络；永不 panic，失败收敛进 GitActionResult.error。
+    RepoAction 取值 UI 层不得越界（只在 allowed_actions 允许时调用）。
 ```
+
+`GitActionResult`：`{ action: RepoAction, ok: bool, summary: string, error: string? }`
+（`summary` 为面向用户的一行结果，如 `Fast-forwarded to <short-sha>` / `Everything up-to-date`；失败时 `error` 为 git stderr 首行）。
 
 错误分类（语义需一致，各端用原生错误类型表达）：`Config` / `Io` / `CommandNotFound` / `Network` / `Parse`。
 
@@ -305,6 +317,44 @@ porcelain v2 计数规则（精确）：
 3. WMO weather code → 文案映射表（两端共享同一映射，见 §10）。
 4. 网络/解析失败 → `Network`/`Parse` 错误，被 `collect_snapshot` 收敛到 `weather_error`。
 
+### 7.5 仓库同步操作（写，见 ADR-011）
+
+面板在只读展示之外，提供三个**显式的安全同步操作**。它们都不可能让仓库进入需要人工善后的状态：`pull` 只允许快进，`push` 只在本地纯领先时提供，`fetch` 完全不碰工作区。**明确不做** commit / 非 ff 的 merge / rebase / 冲突解决 / stash / `push --force` / 分支切换 / 任何交互式操作。
+
+#### 命令（均带超时，超时值取 `general.command_timeout_secs`）
+
+| RepoAction | 命令 | 说明 |
+|------------|------|------|
+| `Pull` | `git -C <path> pull --ff-only` | 只能快进；不能快进时**不改动任何东西**直接非零退出 |
+| `Push` | `git -C <path> push` | 推送当前分支到其 upstream；被拒时干净失败，不动本地 |
+| `Fetch` | `git -C <path> fetch --quiet` | 只更新远程跟踪引用 |
+
+#### 按钮显隐规则（`allowed_actions`，纯函数，按 `RepoState` 决定）
+
+| RepoState | pull | push | fetch | 理由 |
+|-----------|:----:|:----:|:-----:|------|
+| `Clean` | ✗ | ✗ | ✓ | 无差距，只保留手动 fetch |
+| `NeedsPull` | ✓ | ✗ | ✓ | `behind>0` 且 `ahead==0` → 一定能 ff |
+| `NeedsPush` | ✗ | ✓ | ✓ | `ahead>0` 且 `behind==0` → 一定能 push |
+| `Diverged` | ✗ | ✗ | ✓ | ahead 与 behind 同时 >0，需用户自行决定 rebase/merge |
+| `Dirty` | ✗ | ✗ | ✓ | 先处理未提交改动 |
+| `NoUpstream` | ✗ | ✗ | ✓ | 无 upstream，pull/push 无目标 |
+| `Error` | ✗ | ✗ | ✗ | 连是不是 git 工作区都没确认 |
+
+> 该表由 `docs/test-vectors/repo-actions/` 锁定（§10.2），两端按钮显隐必须一致。
+
+> **Fetch 按钮的额外条件**：`allowed_actions.fetch` 表示"该状态下 fetch 是安全操作"，但 **Fetch 按钮仅在 `general.fetch_remote == false` 时才渲染**。`fetch_remote == true`（默认）时，每次刷新（启动 / 手动 / 定时 / 增删改仓库）已按 §7.1 对每个仓库自动 `git fetch --quiet`，独立的手动 Fetch 按钮是冗余的。此条件依赖全局配置而非 `RepoState`，属 UI 渲染规则（见下方执行语义 7），不进测试向量。Pull / Push 按钮不受 `fetch_remote` 影响。
+
+#### 执行语义（UI 层，两端一致）
+
+1. **后台执行**：操作在后台线程/队列跑，不阻塞 UI；执行期间该行的操作按钮禁用，显示进行中文案（`Pulling…` / `Pushing…` / `Fetching…`）。
+2. **仅限允许的操作**：UI 只在 `allowed_actions` 为该状态放行时才发起对应操作。
+3. **操作后重采该行**：操作结束后，立即对该仓库重新执行一次 §7.1/§7.2 采集，用结果刷新该行的状态徽标与计数。
+4. **结果提示**：该行显示一行简短结果——成功用 `GitActionResult.summary`，失败用 `error`（git stderr 首行）。此提示在**下一次整体刷新**（Refresh 按钮 / 定时 / 增删改仓库）时清除；操作后的定向重采不清除它。
+5. **失败降级**：操作失败只影响该行（延续 §2）；`pull --ff-only` / `push` 失败均无本地副作用，用户可据提示自行到终端处理。网络超时后 push 可能已在远端部分完成，此时步骤 3 的重采会显示真实状态。
+6. **与整体刷新的关系**：单行操作不改变 §8.1 的代际 token；正在整体刷新（`refreshing==true`）时，操作按钮一并禁用。
+7. **Fetch 按钮的渲染条件**：仅当 `general.fetch_remote == false` 时渲染 Fetch 按钮（理由见上方显隐表下的说明）。两端在配置变化后（含启动、配置重载）都要同步这个条件。
+
 ## 8. 刷新策略（UI 负责）
 
 - **启动**：`check_environment` 给出 git/chezmoi 缺失提示 → 后台执行 `collect_snapshot` → 渲染。
@@ -331,11 +381,13 @@ porcelain v2 计数规则（精确）：
 
 天气采集独立于仓库刷新，各自降级，互不阻塞。
 
+§7.5 的"操作后重采该行"是一次**定向的单行采集**：它不分配新代际 token，直接按 `path` 定位并回填该行，其余行不受影响；正在整体刷新时操作按钮禁用，二者不会并发写同一行。
+
 ## 9. UI 设计要点（两端一致的信息架构）
 
 四个分区，布局可各端适配：
 
-1. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。
+1. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在行内显示一行结果（成功/失败），结果在下次整体刷新时清除。
 2. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
 3. **Clocks**：每个配置时区一个时钟，实时更新。
 4. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
@@ -361,9 +413,10 @@ porcelain v2 计数规则（精确）：
 
 1. **git-porcelain/**：`input` = 一段 `git status --porcelain=v2 --branch` 原始文本；`expected` = 解析出的 `RepoStatus`（branch/upstream/ahead/behind/各计数）。
 2. **repo-state/**：`input` = 字段组合（ahead/behind/各计数/has_upstream/error）；`expected` = 派生的 `RepoState`。须覆盖 §7.2 决策表每一行及边界。
-3. **chezmoi-status/**：`input` = `chezmoi status` 文本；`expected` = `ChezmoiEntry[]`。
-4. **weather-json/**：`input` = Open-Meteo `forecast` 返回 JSON（含正常、缺字段、空 daily 等用例）；`expected` = `WeatherReport`（含降级表现）。
-5. **wmo-codes**：weather_code → 文案 的完整映射表（两端共同引用，避免文案分叉）。
+3. **repo-actions/**：`input` = 一个 `RepoState` 名（字符串）；`expected` = `{ pull, push, fetch }` 三个布尔。须覆盖 §7.5 显隐表每一行（7 个状态）。锁定两端操作按钮显隐一致。
+4. **chezmoi-status/**：`input` = `chezmoi status` 文本；`expected` = `ChezmoiEntry[]`。
+5. **weather-json/**：`input` = Open-Meteo `forecast` 返回 JSON（含正常、缺字段、空 daily 等用例）；`expected` = `WeatherReport`（含降级表现）。
+6. **wmo-codes**：weather_code → 文案 的完整映射表（两端共同引用，避免文案分叉）。
 
 向量格式示例（`repo-state/diverged.json`）：
 
@@ -391,7 +444,7 @@ porcelain v2 计数规则（精确）：
 ## 12. 非目标（当前阶段明确不做）
 
 - 不做后端/服务端、不做跨机汇总、不做 Web 端（见 ADR-001 的 Revisit Trigger）。
-- 不做 git 写操作（不代替用户 commit/push/pull）；仅只读展示状态。
+- git 写操作只做三个显式的安全同步操作：`pull --ff-only` / `push` / `fetch`（见 §7.5、ADR-011）。**不做** commit / 非 ff 的 merge / rebase / 冲突解决 / stash / `push --force` / 分支切换 / 任何交互式操作——面板不是 git 客户端。
 - 不做历史趋势、告警、通知中心。
 - 不做多用户、不做鉴权。
 - 不抽取共享二进制 core、不引入 FFI（见 ADR-002）。
