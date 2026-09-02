@@ -263,41 +263,52 @@ export component AppWindow inherits Window {
                             HorizontalBox {
                                 padding: 0px;
                                 spacing: 8px;
-                                alignment: start;
-                                Rectangle {
-                                    width: 10px;
-                                    height: 10px;
-                                    border-radius: 5px;
-                                    background: repo.state_color;
-                                    y: 5px;
-                                }
-                                Text {
-                                    text: repo.name + "  (" + repo.branch + ")";
-                                    font-weight: 700;
-                                    color: text-primary;
-                                    vertical-alignment: center;
+                                HorizontalBox {
+                                    padding: 0px;
+                                    spacing: 8px;
+                                    alignment: start;
+                                    horizontal-stretch: 0;
+                                    Rectangle {
+                                        width: 10px;
+                                        height: 10px;
+                                        border-radius: 5px;
+                                        background: repo.state_color;
+                                        y: 5px;
+                                    }
+                                    Text {
+                                        text: repo.name + "  (" + repo.branch + ")";
+                                        font-weight: 700;
+                                        color: text-primary;
+                                        vertical-alignment: center;
+                                    }
                                 }
                                 Rectangle { horizontal-stretch: 1; }
-                                if repo.error == "" && repo.can_pull: Button {
-                                    text: repo.action_busy ? "Pulling..." : "Pull";
-                                    enabled: !repo.action_busy && !refreshing;
-                                    clicked => { repo_action(repo.path, "pull"); }
-                                }
-                                if repo.error == "" && repo.can_push: Button {
-                                    text: repo.action_busy ? "Pushing..." : "Push";
-                                    enabled: !repo.action_busy && !refreshing;
-                                    clicked => { repo_action(repo.path, "push"); }
-                                }
-                                if repo.error == "" && repo.can_fetch && !auto_fetch: Button {
-                                    text: repo.action_busy ? "Fetching..." : "Fetch";
-                                    enabled: !repo.action_busy && !refreshing;
-                                    clicked => { repo_action(repo.path, "fetch"); }
-                                }
-                                Text {
-                                    text: repo.state_label;
-                                    color: repo.state_color;
-                                    font-weight: 700;
-                                    vertical-alignment: center;
+                                HorizontalBox {
+                                    padding: 0px;
+                                    spacing: 8px;
+                                    alignment: end;
+                                    horizontal-stretch: 0;
+                                    if repo.error == "" && repo.can_pull: Button {
+                                        text: repo.action_busy ? "Pulling..." : "Pull";
+                                        enabled: !repo.action_busy && !refreshing;
+                                        clicked => { repo_action(repo.path, "pull"); }
+                                    }
+                                    if repo.error == "" && repo.can_push: Button {
+                                        text: repo.action_busy ? "Pushing..." : "Push";
+                                        enabled: !repo.action_busy && !refreshing;
+                                        clicked => { repo_action(repo.path, "push"); }
+                                    }
+                                    if repo.error == "" && repo.can_fetch && !auto_fetch: Button {
+                                        text: repo.action_busy ? "Fetching..." : "Fetch";
+                                        enabled: !repo.action_busy && !refreshing;
+                                        clicked => { repo_action(repo.path, "fetch"); }
+                                    }
+                                    Text {
+                                        text: repo.state_label;
+                                        color: repo.state_color;
+                                        font-weight: 700;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
                             Text {
