@@ -8,14 +8,18 @@
 
 ## 1. 概述
 
-w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立运行，只展示**本机**的：
+w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立运行。它展示**本机**的：
 
 1. **Git 仓库同步状态**——配置中关注的仓库是否有未提交改动、未 push 提交、需要 pull 的远程更新、或已分叉。
 2. **chezmoi 配置同步状态**——本地 home 是否有未应用/未提交的配置，远程是否有需要拉回的配置。
 3. **多时区时间**——北京、纽约及任意可配置时区的当前时间。
 4. **天气**——当前与未来数日预报（数据源 Open-Meteo）。
 
-无后端、无数据库、无网络服务（仅天气直接调用公网 API）。
+并内置一个**常驻桌面小工具**：
+
+5. **番茄钟**——专注 / 休息计时；时段结束时闪烁托盘/菜单栏图标做强提醒（见 §11、ADR-012）。
+
+无后端、无数据库、无网络服务（仅天气直接调用公网 API）；番茄钟状态只存内存，不跨重启保留。
 
 ## 2. 架构总览
 
@@ -43,9 +47,9 @@ w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立�
                        git / chezmoi / Open-Meteo    git / chezmoi / Open-Meteo
 ```
 
-- 每端内部都建议分为**采集层**（config/git/chezmoi/weather/model）与 **UI 层**，两层解耦。
+- 每端内部都建议分为**采集层**（config/git/chezmoi/weather/model）与 **UI 层**，两层解耦。番茄钟的纯逻辑（§11）同属核心层——不联网、不调命令，只是确定性状态机。
 - 两端各自用最地道的原生类型与库，不为跨语言一致而妥协（无 FFI、无跨语言构建链）。
-- 一致性由 §7 的精确派生规则 + §10 的共享测试向量保证。
+- 一致性由 §7 的精确派生规则 + §11 的番茄钟规则 + §10 的共享测试向量保证。
 
 ## 3. 仓库目录结构
 
@@ -111,11 +115,23 @@ location = "Beijing"
 temperature_unit = "celsius"
 # 预报天数
 forecast_days = 5
+
+[pomodoro]
+# 是否启用番茄钟面板与托盘图标状态；false 时面板隐藏、托盘只保留"点击唤起窗口"行为
+enabled = true
+# 专注时长（分钟）
+focus_minutes = 25
+# 休息时长（分钟）
+break_minutes = 5
+# 时段结束时发一条系统通知
+notify = true
+# 时段结束时播放一次提示音
+sound = true
 ```
 
 配置加载规则（两端按同一规格实现）：
-- 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"）。
-- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度）返回带字段定位的明确错误，UI 展示为可读提示。
+- 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"、pomodoro `enabled=true` 且 25/5/true/true）。
+- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`）返回带字段定位的明确错误，UI 展示为可读提示。
 - `~` 与环境变量需统一展开。
 
 ## 5. 逻辑数据模型（语言无关）
@@ -201,7 +217,28 @@ forecast_days = 5
 | `label` | string | 显示名（如"北京"） |
 | `tz` | string | IANA tz id（如 `Asia/Shanghai`） |
 
-### 5.6 两端类型示意（同一模型，各自原生）
+### 5.6 PomodoroPhase / PomodoroState / PomodoroView（番茄钟，详见 §11）
+
+`PomodoroPhase` 枚举取值：`Idle` / `Focus` / `Break` / `FocusEnded` / `BreakEnded`
+（`*Ended` = 时间已到、等用户确认的**超时提醒态**，UI 据此闪烁图标）。
+
+| PomodoroState 字段 | 类型 | 说明 |
+|------|------|------|
+| `phase` | `PomodoroPhase` | 当前阶段 |
+| `phase_started_at` | `int?`(unix 秒) | 当前时段开始时刻；`Idle` 为空；`*Ended` 保留为原时段开始时刻 |
+| `focus_secs` | int | 专注时长。UI 层仅在 `phase == Idle` 时从配置（`focus_minutes * 60`）写入，进行中的时段冻结此值（§11.3） |
+| `break_secs` | int | 休息时长，规则同 `focus_secs`（`break_minutes * 60`） |
+
+| PomodoroView 字段 | 类型 | 说明 |
+|------|------|------|
+| `phase` | `PomodoroPhase` | 透传 |
+| `remaining_secs` | int | `Focus`/`Break`: `max(0, duration - elapsed)`；`*Ended` / `Idle`: `0` |
+| `elapsed_secs` | int | `Focus`/`Break`: `now - phase_started_at`；`*Ended`: 冻结为 `duration`；`Idle`: `0` |
+| `overtime_secs` | int | `*Ended`: `now - phase_started_at - duration`（≥0）；否则 `0` |
+| `progress` | float | `Focus`/`Break`: `clamp(elapsed / duration, 0, 1)`；`*Ended`: `1`；`Idle`: `0` |
+| `alerting` | bool | `phase ∈ { FocusEnded, BreakEnded }` |
+
+### 5.7 两端类型示意（同一模型，各自原生）
 
 ```rust
 // Rust（app-linux）
@@ -228,6 +265,15 @@ struct RepoStatus {
     let behind: Int
     let state: RepoState
     // ... 其余字段同 §5.2
+}
+
+enum PomodoroPhase { case idle, focus, brk, focusEnded, breakEnded }
+
+struct PomodoroState {
+    var phase: PomodoroPhase
+    var phaseStartedAt: Int?   // unix 秒
+    var focusSecs: Int
+    var breakSecs: Int
 }
 ```
 
@@ -259,6 +305,15 @@ run_repo_action(repo: RepoConfig, action: RepoAction) -> GitActionResult
     执行一个显式的安全同步操作（见 §7.5、ADR-011）。RepoAction ∈ { Pull, Push, Fetch }。
     有副作用、走网络；永不 panic，失败收敛进 GitActionResult.error。
     RepoAction 取值 UI 层不得越界（只在 allowed_actions 允许时调用）。
+
+pomodoro_view(state: PomodoroState, now: int) -> PomodoroView
+    纯函数：从状态 + 当前时刻推导展示数据（见 §11.2）。
+    由 pomodoro 测试向量锁定（§10.2）。
+
+pomodoro_reduce(state: PomodoroState, event: PomodoroEvent, now: int) -> PomodoroState
+    纯函数：状态迁移。PomodoroEvent ∈ { StartFocus, StartBreak, Stop, Tick }。
+    迁移规则见 §11.3；由 pomodoro-transition 测试向量锁定（§10.2）。
+    focus_secs / break_secs 始终从最新配置注入，不随事件改变。
 ```
 
 `GitActionResult`：`{ action: RepoAction, ok: bool, summary: string, error: string? }`
@@ -397,14 +452,15 @@ porcelain v2 计数规则（精确）：
 
 ## 9. UI 设计要点（两端一致的信息架构）
 
-四个分区，布局可各端适配：
+五个分区，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
 
-1. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在行内显示一行结果（成功/失败），结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
-2. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
-3. **Clocks**：每个配置时区一个时钟，实时更新。
-4. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
+1. **Pomodoro**（置顶）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、进度条；按钮 `Start focus` / `Start break` / `Stop`（按 phase 高亮/禁用）。`pomodoro.enabled == false` 时整个分区隐藏。详见 §11。放在最上面是因为它是唯一需要主动操作的分区，其余四个是只读监视。
+2. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在行内显示一行结果（成功/失败），结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
+3. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
+4. **Clocks**：每个配置时区一个时钟，实时更新。
+5. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
 
-颜色语义（两端一致）：绿=Clean、黄=NeedsPush/NeedsPull/Dirty、红=Diverged/Error、灰=NoUpstream/未配置/采集中（§8.1）。
+颜色语义（两端一致）：绿=Clean、黄=NeedsPush/NeedsPull/Dirty、红=Diverged/Error、灰=NoUpstream/未配置/采集中（§8.1）；番茄钟 `FocusEnded` 用红、`BreakEnded` 用橙（§11.4）。
 
 ## 10. 行为契约与测试向量（保证两端一致的核心机制）
 
@@ -429,6 +485,8 @@ porcelain v2 计数规则（精确）：
 4. **chezmoi-status/**：`input` = `chezmoi status` 文本；`expected` = `ChezmoiEntry[]`。
 5. **weather-json/**：`input` = Open-Meteo `forecast` 返回 JSON（含正常、缺字段、空 daily 等用例）；`expected` = `WeatherReport`（含降级表现）。
 6. **wmo-codes**：weather_code → 文案 的完整映射表（两端共同引用，避免文案分叉）。
+7. **pomodoro/**：`input` = `{ phase, phase_started_at, focus_secs, break_secs, now }`；`expected` = `PomodoroView`。须覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。锁定 `pomodoro_view` 两端一致（§11.2）。
+8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值（规则 6）上下边界。锁定 `pomodoro_reduce` 两端一致。
 
 向量格式示例（`repo-state/diverged.json`）：
 
@@ -446,22 +504,107 @@ porcelain v2 计数规则（精确）：
 - 两端 CI 都加载 `docs/test-vectors/` 并断言 `parse(input) == expected` / `derive(input) == expected`。
 - 向量是两端一致性的**客观闸门**：两端只要都过向量，即视为行为一致。
 
-## 11. 构建与分发
+## 11. 番茄钟（Pomodoro）
+
+> 依据 [ADR-012](architecture/adr-012-pomodoro-timer.md)。一个常驻桌面小工具：专注 / 休息计时，
+> 时段结束时**闪烁托盘/菜单栏图标**做强提醒。移植自作者的网页版 `pomodoro-vue`。
+
+### 11.1 分层
+
+| 层 | 内容 | 性质 | 测试 |
+|----|------|------|------|
+| 纯逻辑 | `pomodoro_view`（状态 → 展示数据）、`pomodoro_reduce`（状态迁移） | 确定性纯函数 | **测试向量**（§10.2 的 `pomodoro/` 与 `pomodoro-transition/`）+ 各端单测 |
+| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音 | 有副作用、各端机制不同 | 无向量；两端对照本节可观察行为走查 |
+
+数据模型见 §5.6。番茄钟状态是**内存中唯一的一份 `PomodoroState`**，不写盘，应用重启后回到 `Idle`（ADR-012：符合 ADR-001「无数据库」）。
+
+### 11.2 `pomodoro_view(state, now)` 派生规则
+
+设 `elapsed_raw = now - phase_started_at`（`Focus` / `FocusEnded` 用 `focus_secs`，`Break` / `BreakEnded` 用 `break_secs`）：
+
+| phase | remaining_secs | elapsed_secs | overtime_secs | progress | alerting |
+|-------|:--------------:|:------------:|:-------------:|:--------:|:--------:|
+| `Idle` | 0 | 0 | 0 | 0.0 | false |
+| `Focus` | `max(0, focus_secs - elapsed_raw)` | `elapsed_raw` | 0 | `clamp(elapsed_raw / focus_secs, 0.0, 1.0)` | false |
+| `Break` | `max(0, break_secs - elapsed_raw)` | `elapsed_raw` | 0 | `clamp(elapsed_raw / break_secs, 0.0, 1.0)` | false |
+| `FocusEnded` | 0 | `focus_secs` | `max(0, elapsed_raw - focus_secs)` | 1.0 | true |
+| `BreakEnded` | 0 | `break_secs` | `max(0, elapsed_raw - break_secs)` | 1.0 | true |
+
+- `phase_started_at` 为空时（只可能在 `Idle`）所有数值字段取 0。
+- `elapsed_raw = now - phase_started_at`，可能为负（`now` 早于开始时刻，正常不会发生）——`remaining` 的 `max` 与 `progress` 的 `clamp` 已兜住，`elapsed_secs` 直接透传。
+- `progress` 是浮点：分子分母都是整数秒，先转浮点再相除（`elapsed_raw as f64 / focus_secs as f64`），两端结果按 IEEE-754 double 必须逐位一致。
+- 显示层把 `remaining_secs` / `overtime_secs` 格式化为 `mm:ss`；派生层只给整数秒。
+
+### 11.3 `pomodoro_reduce(state, event, now)` 迁移规则（按序匹配，命中即止）
+
+`PomodoroEvent ∈ { StartFocus, StartBreak, Stop, Tick }`
+
+规则 6 里 `duration` = `FocusEnded` 取 `state.focus_secs`、`BreakEnded` 取 `state.break_secs`。
+常量 `AUTO_STOP_OVERTIME_SECS = 1800`（超时提醒 30 分钟无人确认 → 视为人已离开，自动收工）。
+
+| 序 | 条件 | 结果 state |
+|----|------|-----------|
+| 1 | `event == StartFocus` | `{ phase: Focus, phase_started_at: now, focus_secs, break_secs }`（`focus_secs`/`break_secs` 沿用 state 现值，见下方说明）|
+| 2 | `event == StartBreak` | `{ phase: Break, phase_started_at: now, focus_secs, break_secs }` |
+| 3 | `event == Stop` | `{ phase: Idle, phase_started_at: null, focus_secs, break_secs }` |
+| 4 | `event == Tick` 且 `phase == Focus` 且 `now - phase_started_at >= focus_secs` | `phase → FocusEnded`（其余字段不变）|
+| 5 | `event == Tick` 且 `phase == Break` 且 `now - phase_started_at >= break_secs` | `phase → BreakEnded`（其余字段不变）|
+| 6 | `event == Tick` 且 `phase ∈ { FocusEnded, BreakEnded }` 且 `now - phase_started_at - duration >= AUTO_STOP_OVERTIME_SECS` | `{ phase: Idle, phase_started_at: null, focus_secs, break_secs }` |
+| 7 | 其余（含 `Tick` 在 `Idle` / `*Ended` 未超阈值 / `Focus`/`Break` 未到时）| state 不变 |
+
+- **时长冻结**：`reduce` 只读 `state.focus_secs` / `state.break_secs`，从不读配置——一旦进入一个时段，它的目标时长就定死在 state 里，中途改配置不影响正在跑的（含 `*Ended`）时段。配置的时长变更由 **UI 层**注入：仅当 `phase == Idle` 时，把最新配置的 `focus_minutes*60` / `break_minutes*60` 写回 `state`；非 `Idle` 时不写，等下次回到 `Idle` 再生效（见 §11.4 步骤 7）。
+- **自动收工**（规则 6）：`*Ended` 持续超时满 30 分钟仍无人点按钮，`reduce` 自己把 phase 收回 `Idle`，UI 随之停止闪烁、复位图标（等同用户点了 Stop）。这是 ADR-012 问答里确认的行为。
+- `*Ended` 在未达自动收工阈值前是终态，只由用户显式 `StartFocus` / `StartBreak` / `Stop` 退出——不自动切到下一段（ADR-012：手动 + 持续提醒）。
+- "确认"没有独立事件：用户点面板任一按钮即产生对应的 `Start*` / `Stop`，UI 据此停止提醒（§11.4 步骤 5）。
+
+### 11.4 UI 层职责（两端各自实现，不进向量）
+
+1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
+2. **面板**（§9 置顶分区）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、进度条、三个按钮（`Idle` 突出 Start focus；`*Ended` 三个都可点）。
+3. **托盘 / 菜单栏图标状态机**（由 `phase` / `alerting` 驱动）：
+
+   | phase | 图标 |
+   |-------|------|
+   | `Idle` | 中性图标（Linux：暗灰圆点；macOS：保留现有 `square.grid.2x2`），菜单仍可开始 |
+   | `Focus` / `Break` | 常态图标（Linux：绿/蓝圆点；macOS：`timer` 模板符号），tooltip 显示阶段 |
+   | `FocusEnded` | **闪烁**：UI 定时器 ~1.5 Hz 在「红色」与「暗/透明」间切换图标 |
+   | `BreakEnded` | **闪烁**：同上，用「橙色」 |
+
+   - Linux：StatusNotifierItem，`ksni` crate（独立 D-Bus 线程），提供右键菜单项（开始专注 / 开始休息 / 停止）触发对应事件。图标为代码生成的 ARGB32 色块（v1；后续可换成 ADR-012 的番茄剪影 PNG）。
+   - macOS：切换 `NSStatusItem.button.image`（`timer` SF Symbol，`*Ended` 用 `paletteColors` 上红/橙非模板色）；进入 `*Ended` 叠加 `NSApp.requestUserAttention(.criticalRequest)` 让 Dock 图标跳动，确认时 `cancelUserAttentionRequest`。
+   - 番茄剪影图标资产（未来）：`app-linux/ui/icons/tray/`、`app-macos/Resources/`（设计见 ADR-012「图标设计」）。
+4. **进入 `*Ended` 的那一刻（每次只触发一次，用 phase 边沿判断，不在每个 tick 重复）**：
+   - `notify == true` → 一条系统通知。macOS `osascript -e 'display notification …'` 子进程（不需打包/授权，也延续 ADR-003 "shell out"）；Linux `notify-send` 子进程。文案：专注结束「该起来活动一下了」/ 休息结束「可以开始专注了」。
+   - `sound == true` **且进入的是 `FocusEnded`** → 播一次提示音。macOS `NSSound(named: "Glass")`；Linux `canberra-gtk-play -i complete` 或 `paplay …/complete.oga` 子进程。**`BreakEnded` 不响提示音**——休息结束的提醒比专注结束弱一档（ADR-012 问答确认）：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，不响。
+   - 子进程 / 通知失败 **静默降级**（延续 SDD §2、AGENTS.md：单项失败不拖垮整体）。
+5. **确认**（用户点任意 `开始…` / `停止`，或规则 6 自动收工）：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`。
+6. **无 SNI host 兜底（Linux）**：启动时检测不到 `org.kde.StatusNotifierWatcher` 时，`*Ended` 态改为——面板内大号高亮横幅 + 窗口标题加前缀 `⏰`；其余行为不变。
+7. **配置加载**：两端目前都**没有配置文件热重载**（`[pomodoro]` 只在启动时读一次；改了番茄钟设置需重启，重启本就回 `Idle`，与"状态不持久化"一致）。**若**将来加了热重载，按下述规则处理，且这几条都属 UI 层、不进向量：
+   - `pomodoro.enabled` 由 `true` 变 `false`：立即对 state 施加 `Stop`（回 `Idle`）、隐藏该分区、注销托盘图标状态；由 `false` 变 `true`：显示分区、注册托盘、state 为 `Idle`。
+   - `focus_minutes` / `break_minutes` 变化：仅当 `phase == Idle` 时把新值写回 `state.focus_secs` / `state.break_secs`；非 `Idle` 时不动，等回到 `Idle` 再写（配合 §11.3「时长冻结」——`state` 里冻结的那份才是权威）。
+   - `notify` / `sound` 变化：下一次进入 `*Ended` 时按新值执行。
+
+### 11.5 番茄钟非目标（v1，见 ADR-012）
+
+长休息（每 N 个专注后）、当日 / 历史统计、跨重启恢复、重复提示音（只响一次）、任务清单、多个并行计时器、番茄钟设置界面（改配置文件即可）。
+
+## 12. 构建与分发
 
 - **app-linux**：独立的 Rust 工程，`cargo build`（`build.rs` 编译 `.slint` 文件为生成代码）；产物为可执行文件，配 `.desktop` 入口。测试 `cargo test`（含加载共享测试向量）。
 - **app-macos**：独立的 Swift/Xcode 工程；产物为 `.app`。测试用 XCTest（含加载同一份共享测试向量）。
 - 两端**无任何跨语言构建步骤**（无交叉编译、无 FFI 绑定生成、无 XCFramework）。
 - 改动数据模型或派生规则时：先改 SDD 与测试向量，再让两端各自同步实现（见 ADR-008）。
 
-## 12. 非目标（当前阶段明确不做）
+## 13. 非目标（当前阶段明确不做）
 
 - 不做后端/服务端、不做跨机汇总、不做 Web 端（见 ADR-001 的 Revisit Trigger）。
 - git 写操作只做三个显式的安全同步操作：`pull --ff-only` / `push` / `fetch`（见 §7.5、ADR-011）。**不做** commit / 非 ff 的 merge / rebase / 冲突解决 / stash / `push --force` / 分支切换 / 任何交互式操作——面板不是 git 客户端。
 - 不做历史趋势、告警、通知中心。
 - 不做多用户、不做鉴权。
 - 不抽取共享二进制 core、不引入 FFI（见 ADR-002）。
+- 番茄钟只做久坐提醒这一个工具，不扩成效率套件：番茄钟自身非目标见 §11.5、ADR-012。
 
-## 13. 未来演进预留
+## 14. 未来演进预留
 
 `DashboardSnapshot` 是可序列化结构。若未来需要演进到"Agent 上报 + 中心查看"（ADR-001 方案 B），
 只需在各端采集层之外各加一层上报模块，将快照序列化后 push 到服务端，**UI 与采集逻辑无需改动**。

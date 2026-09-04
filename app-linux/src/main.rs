@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -7,7 +7,12 @@ use std::time::Duration;
 
 use slint::{Color, ComponentHandle, Model, SharedString, Timer, TimerMode, VecModel, Weak};
 use w_dashboard_linux::model::{RepoState, RepoStatus, WeatherReport};
+use w_dashboard_linux::pomodoro::{
+    pomodoro_reduce, pomodoro_view, PomodoroEvent, PomodoroPhase, PomodoroState, PomodoroView,
+};
 use w_dashboard_linux::{config, git, weather};
+
+mod tray;
 
 slint::include_modules!();
 
@@ -104,6 +109,123 @@ fn pending_color() -> Color {
 
 fn now_hms() -> String {
     chrono::Local::now().format("%H:%M:%S").to_string()
+}
+
+fn now_unix() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+// ---------------- Pomodoro (SDD §11, ADR-012) ----------------
+// Pure logic (reduce/view) lives in `w_dashboard_linux::pomodoro`; here it's just
+// the UI-thread wiring: a 1s tick, rendering into the window, and the phase-edge
+// side effects (desktop notification, sound). Tray icon: `pomodoro_tray` (below).
+
+fn pomodoro_phase_label(phase: PomodoroPhase) -> &'static str {
+    match phase {
+        PomodoroPhase::Idle => "Idle",
+        PomodoroPhase::Focus => "Focus",
+        PomodoroPhase::Break => "Break",
+        PomodoroPhase::FocusEnded => "Focus done",
+        PomodoroPhase::BreakEnded => "Break done",
+    }
+}
+
+fn fmt_mmss(secs: i64) -> String {
+    let s = secs.max(0);
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+fn pomodoro_time_label(view: &PomodoroView) -> String {
+    match view.phase {
+        PomodoroPhase::Idle => String::new(),
+        PomodoroPhase::Focus | PomodoroPhase::Break => fmt_mmss(view.remaining_secs),
+        PomodoroPhase::FocusEnded | PomodoroPhase::BreakEnded => {
+            format!("+{}", fmt_mmss(view.overtime_secs))
+        }
+    }
+}
+
+/// Semantic bar/accent colour per phase (SDD §9: FocusEnded red, BreakEnded orange).
+fn pomodoro_bar_color(phase: PomodoroPhase) -> Color {
+    match phase {
+        PomodoroPhase::Idle => Color::from_rgb_u8(0xb0, 0xb6, 0xbd),
+        PomodoroPhase::Focus => Color::from_rgb_u8(0x4c, 0xaf, 0x50),
+        PomodoroPhase::Break => Color::from_rgb_u8(0x42, 0x9c, 0xd6),
+        PomodoroPhase::FocusEnded => Color::from_rgb_u8(0xe4, 0x37, 0x2e),
+        PomodoroPhase::BreakEnded => Color::from_rgb_u8(0xff, 0x7a, 0x1a),
+    }
+}
+
+fn apply_pomodoro(ui: &AppWindow, state: &PomodoroState, now: i64) {
+    let view = pomodoro_view(state, now);
+    ui.set_pomodoro_phase_label(pomodoro_phase_label(view.phase).into());
+    ui.set_pomodoro_time_label(pomodoro_time_label(&view).into());
+    ui.set_pomodoro_progress(view.progress as f32);
+    ui.set_pomodoro_running(view.phase != PomodoroPhase::Idle);
+    ui.set_pomodoro_alerting(view.alerting);
+    ui.set_pomodoro_bar_color(pomodoro_bar_color(view.phase));
+    // Window-title prefix doubles as the no-tray fallback signal (SDD §11.4 step 6).
+    ui.set_window_title(if view.alerting { "⏰ w_dashboard" } else { "w_dashboard" }.into());
+}
+
+/// Apply one pomodoro event: reduce, then push the new phase to the tray and
+/// re-render the panel. Shared by the panel buttons and the tray menu.
+fn dispatch_pomodoro_event(
+    state: &RefCell<PomodoroState>,
+    tray: &Option<tray::PomodoroTray>,
+    ui_weak: &Weak<AppWindow>,
+    event: PomodoroEvent,
+) {
+    let now = now_unix();
+    let mut st = state.borrow_mut();
+    *st = pomodoro_reduce(*st, event, now);
+    if let Some(t) = tray {
+        t.set_phase(st.phase);
+    }
+    if let Some(ui) = ui_weak.upgrade() {
+        apply_pomodoro(&ui, &st, now);
+    }
+}
+
+/// Fired once on the tick that enters a `*Ended` phase (SDD §11.4 step 4):
+/// a desktop notification, plus a sound only on `FocusEnded`. Best-effort —
+/// missing `notify-send` / sound players are ignored (SDD §2).
+fn pomodoro_alert(phase: PomodoroPhase, notify: bool, sound: bool) {
+    let want_sound = sound && phase == PomodoroPhase::FocusEnded;
+    if !notify && !want_sound {
+        return;
+    }
+    std::thread::spawn(move || {
+        if notify {
+            let body = match phase {
+                PomodoroPhase::FocusEnded => "Focus session done — time to get up and move.",
+                PomodoroPhase::BreakEnded => "Break's over — ready to focus?",
+                _ => return,
+            };
+            let _ = std::process::Command::new("notify-send")
+                .args(["-a", "w_dashboard", "w_dashboard", body])
+                .status();
+        }
+        if want_sound {
+            let attempts: [(&str, &[&str]); 2] = [
+                ("canberra-gtk-play", &["-i", "complete"]),
+                (
+                    "paplay",
+                    &["/usr/share/sounds/freedesktop/stereo/complete.oga"],
+                ),
+            ];
+            for (bin, args) in attempts {
+                if std::process::Command::new(bin)
+                    .args(args)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+            }
+        }
+    });
 }
 
 /// UI-thread state behind the repo list: the row model plus the current
@@ -672,6 +794,86 @@ fn main() -> anyhow::Result<()> {
             ui.set_clocks(Rc::new(VecModel::from(clock_rows(&clocks_cfg))).into());
         }
     });
+
+    // ---------------- Pomodoro (SDD §11, ADR-012) ----------------
+    let pomodoro_cfg = shared_cfg.lock().unwrap().pomodoro;
+    ui.set_pomodoro_enabled(pomodoro_cfg.enabled);
+    let pomodoro_state = Rc::new(RefCell::new(PomodoroState::idle(
+        i64::from(pomodoro_cfg.focus_minutes) * 60,
+        i64::from(pomodoro_cfg.break_minutes) * 60,
+    )));
+
+    // Tray menu -> UI thread. `PomodoroTray` is `None` when disabled, off Linux,
+    // or when there is no StatusNotifierItem host (then the in-window title/border
+    // is the only alert — SDD §11.4 step 6).
+    let (tray_tx, tray_rx) = mpsc::channel::<PomodoroEvent>();
+    let pomodoro_tray: Rc<Option<tray::PomodoroTray>> = Rc::new(if pomodoro_cfg.enabled {
+        tray::spawn_pomodoro_tray(tray_tx)
+    } else {
+        None
+    });
+
+    apply_pomodoro(&ui, &pomodoro_state.borrow(), now_unix());
+
+    {
+        let pomodoro_state = pomodoro_state.clone();
+        let pomodoro_tray = pomodoro_tray.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_pomodoro_event(move |raw_event| {
+            let event = match raw_event.as_str() {
+                "start_focus" => PomodoroEvent::StartFocus,
+                "start_break" => PomodoroEvent::StartBreak,
+                "stop" => PomodoroEvent::Stop,
+                _ => return,
+            };
+            dispatch_pomodoro_event(&pomodoro_state, &pomodoro_tray, &ui_weak, event);
+        });
+    }
+
+    let pomodoro_timer = Timer::default();
+    let pomodoro_tray_poll = Timer::default();
+    if pomodoro_cfg.enabled {
+        {
+            let pomodoro_state = pomodoro_state.clone();
+            let pomodoro_tray = pomodoro_tray.clone();
+            let ui_weak = ui.as_weak();
+            let notify = pomodoro_cfg.notify;
+            let sound = pomodoro_cfg.sound;
+            pomodoro_timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+                let now = now_unix();
+                let (prev_phase, new_phase) = {
+                    let mut st = pomodoro_state.borrow_mut();
+                    let prev = st.phase;
+                    *st = pomodoro_reduce(*st, PomodoroEvent::Tick, now);
+                    (prev, st.phase)
+                };
+                if new_phase != prev_phase {
+                    if matches!(
+                        new_phase,
+                        PomodoroPhase::FocusEnded | PomodoroPhase::BreakEnded
+                    ) {
+                        pomodoro_alert(new_phase, notify, sound);
+                    }
+                    if let Some(t) = &*pomodoro_tray {
+                        t.set_phase(new_phase);
+                    }
+                }
+                if let Some(ui) = ui_weak.upgrade() {
+                    apply_pomodoro(&ui, &pomodoro_state.borrow(), now);
+                }
+            });
+        }
+        {
+            let pomodoro_state = pomodoro_state.clone();
+            let pomodoro_tray = pomodoro_tray.clone();
+            let ui_weak = ui.as_weak();
+            pomodoro_tray_poll.start(TimerMode::Repeated, Duration::from_millis(250), move || {
+                while let Ok(event) = tray_rx.try_recv() {
+                    dispatch_pomodoro_event(&pomodoro_state, &pomodoro_tray, &ui_weak, event);
+                }
+            });
+        }
+    }
 
     ui.run()?;
     Ok(())

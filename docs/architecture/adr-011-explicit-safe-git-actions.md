@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted（修订 ADR-001「不做 git 写操作」、SDD §12 非目标的对应条目；不改变 ADR-002 两端独立实现、ADR-003 子进程采集方式、SDD §7.1/§7.2 的解析与派生规则）
+Accepted（修订 ADR-001「不做 git 写操作」、SDD 非目标章节的对应条目；不改变 ADR-002 两端独立实现、ADR-003 子进程采集方式、SDD §7.1/§7.2 的解析与派生规则）
 
 ## Context
 
@@ -13,7 +13,7 @@ Accepted（修订 ADR-001「不做 git 写操作」、SDD §12 非目标的对�
 **触发**：作者在使用中直接提出："needs pull 的状态，能不能点一下按钮就执行一次 git pull。"
 
 **原决策（被本 ADR 修订的部分）**：
-- ADR-001 / SDD §12：「不做 git 写操作（不代替用户 commit/push/pull）；仅只读展示状态。」
+- ADR-001 / SDD 非目标章节：「不做 git 写操作（不代替用户 commit/push/pull）；仅只读展示状态。」
 - `.cursor/rules/ui-no-logic.mdc`：「不替用户执行 git/chezmoi 写操作（commit/push/pull/apply）。」
 
 这条约束当初的用意是**避免面板变成一个半吊子 git 客户端**：合并冲突、rebase、交互式提交这些操作一旦做一半，
@@ -73,12 +73,12 @@ Accepted（修订 ADR-001「不做 git 写操作」、SDD §12 非目标的对�
 ## Consequences
 
 - **Positive**：常见的"需要 pull / 需要 push"两步到一步；面板可用性显著提升；实现上大量复用既有子进程封装与增量刷新。
-- **Negative**：两端 UI 层各多一份"操作调度 + 结果展示 + 操作后重采"逻辑；非目标清单需要同步修订（SDD §12 / AGENTS.md / cursor 规则），否则文档与实现相互矛盾。
+- **Negative**：两端 UI 层各多一份"操作调度 + 结果展示 + 操作后重采"逻辑；非目标清单需要同步修订（SDD 非目标章节 / AGENTS.md / cursor 规则），否则文档与实现相互矛盾。
 - **Mitigation**：
   - 把命令、按钮显隐规则、失败降级写进 SDD §7.5，作为两端共同契约。
   - 新增 `docs/test-vectors/repo-actions/`：每个 `RepoState` → `{ pull, push, fetch }` 布尔，两端测试共用。
   - 各端加少量 e2e 冒烟（临时建 bare remote + 本地克隆，制造 behind/ahead，跑 Pull/Push 验证链路）。
-  - SDD §12 的非目标条目从"不做 git 写操作"改为精确表述（见该节）。
+  - SDD 非目标章节的条目从"不做 git 写操作"改为精确表述（见该节）。
 
 ## Revisit Trigger
 

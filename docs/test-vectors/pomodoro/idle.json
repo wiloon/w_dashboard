@@ -1,0 +1,17 @@
+{
+  "input": {
+    "phase": "Idle",
+    "phase_started_at": null,
+    "focus_secs": 1500,
+    "break_secs": 300,
+    "now": 1700000000
+  },
+  "expected": {
+    "phase": "Idle",
+    "remaining_secs": 0,
+    "elapsed_secs": 0,
+    "overtime_secs": 0,
+    "progress": 0.0,
+    "alerting": false
+  }
+}

@@ -18,6 +18,8 @@
 | M4 | 两端一致性核对与打磨 | M2, M3 |
 | M5 | 刷新体验：仓库增量刷新 | M2, M3 |
 | M6 | 仓库同步操作：Pull / Push / Fetch 按钮 | M2, M3 |
+| M7 | 单行手动刷新按钮 | M5, M6 |
+| M8 | 番茄钟：面板 + 闪烁托盘/菜单栏图标 | M2, M3 |
 
 > **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
 
@@ -172,6 +174,43 @@
   - 整体刷新进行中时该行所有按钮（含单行 Refresh）禁用；
   - 既有 `cargo test` / `swift test` 全过，测试向量无改动。
 
+## M8 — 番茄钟：面板 + 闪烁托盘/菜单栏图标
+
+> 依据 [ADR-012](architecture/adr-012-pomodoro-timer.md) 与 [SDD §11](sdd.md)。
+> 移植自作者的网页版 `pomodoro-vue`。纯逻辑（`pomodoro_view` / `pomodoro_reduce`）是纯函数、进测试向量；
+> 定时器 / 托盘图标 / 通知 / 声音是各端 UI 层副作用，只做人工走查。不碰 §7 任何采集与派生规则。
+
+- **T8.1** 规格先行：写 ADR-012；SDD §1 概述补第 5 项，§4 加 `[pomodoro]` 段与校验规则，§5.6 加 `PomodoroPhase` / `PomodoroState` / `PomodoroView`，§6 加 `pomodoro_view` / `pomodoro_reduce` 签名，§9 把 Pomodoro 列为置顶分区 + 颜色语义，§10.2 加 `pomodoro/` 与 `pomodoro-transition/` 类别，新增 §11「番茄钟」（分层 / 派生规则 / 迁移规则含自动收工 / 时长冻结 / UI 职责含配置重载 / 非目标），§13 非目标补一条；同步 `AGENTS.md`「项目是什么」、`config.example.toml`、`.cursor/rules/ui-no-logic.mdc`、`CONTEXT.md` 术语。
+- **T8.2** 测试向量：
+  - `docs/test-vectors/pomodoro/`（10 个）：`{ "input": { "phase", "phase_started_at", "focus_secs", "break_secs", "now" }, "expected": { PomodoroView 全字段 } }`。覆盖 SDD §11.2 表每一行 + 临界（`elapsed == duration` 恰好）+ overtime + `Idle`（`phase_started_at: null`）。
+  - `docs/test-vectors/pomodoro-transition/`（13 个）：`{ "input": { "state": { PomodoroState }, "event": "<PomodoroEvent>", "now" }, "expected": { PomodoroState } }`。覆盖 SDD §11.3 迁移表 7 条每一条 + `Tick` 恰好触发 `FocusEnded` / `BreakEnded` 的临界 + 自动收工阈值（规则 6）上下边界 + `Tick` 未到时不变。
+  - 两端契约测试各加 `pomodoro` / `pomodoro_transition` 用例。
+- **T8.3** app-linux 实现（✅ 已完成，除真机烟测）：
+  - `src/pomodoro.rs`：`PomodoroPhase` / `PomodoroState` / `PomodoroView` / `PomodoroEvent`；纯函数 `pomodoro_view(&PomodoroState, i64)` 与 `pomodoro_reduce(PomodoroState, PomodoroEvent, i64)`。
+  - `src/config.rs`：`PomodoroConfig` + `[pomodoro]` 段解析（`enabled` / `focus_minutes` / `break_minutes` / `notify` / `sound`，默认 25/5/true/true，`<= 0` 报错）。
+  - `ui/app-window.slint`：置顶分区卡片（phase 标签 / 剩余 `mm:ss` / 进度条 / 三个按钮）；窗口加 `pomodoro_*` 属性 + `window_title` + `callback pomodoro_event(string)`；`pomodoro_enabled == false` 时整卡隐藏。
+  - `src/main.rs`：内存持有 `PomodoroState`；1 秒 `slint::Timer` 跑 `Tick` + 重渲染；进入 `FocusEnded` 边沿触发通知 + 提示音（`notify-send` / `canberra-gtk-play`·`paplay` 子进程），进入 `BreakEnded` 边沿只触发通知（不响），失败静默；`[pomodoro]` 启动时读一次（v1 无热重载）；`window_title` 加 `⏰` 前缀作无托盘兜底。
+  - `src/tray.rs`：`ksni`（`cfg(target_os = "linux")` target 依赖，`blocking` feature，纯 Rust/zbus，非 Linux 为 stub）起 StatusNotifierItem，按 phase 换 ARGB32 色块图标（`*Ended` 用独立线程 ~1.5Hz 闪烁），右键菜单项回投 `PomodoroEvent` 走 `mpsc` + 250ms 轮询 `slint::Timer`；无 `StatusNotifierWatcher` 时 `spawn` 返回 `None` → 仅 `⏰` 标题兜底。
+  - `tests/vectors.rs` 加 `pomodoro_view_vectors` / `pomodoro_transition_vectors`；`tests/config_pomodoro.rs`（5 例）。
+- **T8.4** app-macos 实现（✅ 已完成）：
+  - `Sources/WDashboardCore/Pomodoro.swift`：`PomodoroPhase` / `PomodoroState` / `PomodoroView` / `PomodoroEvent`；`pomodoroView(_:now:)` 与 `pomodoroReduce(_:_:now:)`。
+  - `Sources/WDashboardCore/Config.swift` + `TOML.swift`：`PomodoroConfig` + `[pomodoro]` 段解析（同规格）。
+  - `Sources/WDashboardApp/PomodoroPanelView.swift`：置顶分区 SwiftUI 视图（名为 `PomodoroPanelView`，避开与 core `PomodoroView` 同名）；`AppState.swift` 持有 `PomodoroState` + `Task` 每秒 `Tick`，`@Published pomodoro: PomodoroView` 供渲染；进入 `FocusEnded` 边沿 `osascript display notification` + `NSSound(named:"Glass")`，进入 `BreakEnded` 边沿只通知；`[pomodoro]` 启动时读一次。
+  - `Sources/WDashboardApp/AppDelegate.swift`：`StatusItemController` 按 phase 切 `button.image`（`timer` SF Symbol；`*Ended` `paletteColors` 红/橙非模板 + `Timer` ~0.65s 闪烁），进入 `*Ended` `NSApp.requestUserAttention(.criticalRequest)`，离开时 `cancelUserAttentionRequest`；`WDashboardApp.swift` 用 `appState.onPomodoroPhaseChange` 接线。
+  - `Tests/WDashboardCoreTests/VectorTests.swift` 加 `testPomodoroViewVectors` / `testPomodoroTransitionVectors`；`ConfigPomodoroTests.swift`（5 例）。
+- **T8.5** 一致性核对：两端对照 SDD §11 逐条走查——§11.2 派生表 5 行、§11.3 迁移表 7 条（含自动收工）+ 时长冻结、§11.4 UI 职责 7 条（1s tick / 面板 / 托盘状态机 4 态 / 边沿触发：FocusEnded 三样 & BreakEnded 无声 / 确认或自动收工停止提醒 / 无 SNI 兜底 / 无热重载）。
+- **验收**：
+  - 点「开始专注」后剩余时间每秒递减，进度条推进；到 0 进入 `FocusEnded`——托盘/菜单栏图标开始红色闪烁、弹一条系统通知、响一次提示音；
+  - `FocusEnded` 状态一直闪，直到点「开始休息 / 开始专注 / 停止」之一才停；
+  - 「开始休息」倒计时结束进入 `BreakEnded`，图标橙色闪烁、弹通知，但**不响提示音**；
+  - `*Ended` 持续 30 分钟无人点 → 自动回到 `Idle`、停止闪烁（用向量覆盖；手动可改系统时钟验证）；
+  - `pomodoro.enabled = false` 时面板与托盘状态都不出现（改配置后重启生效，v1 无热重载）；
+  - `focus_minutes` / `break_minutes` 改动重启后生效；`pomodoro_reduce` 的时长冻结由向量锁定；
+  - `notify = false` 关掉通知、`sound = false` 关掉提示音，闪图标都不受影响；
+  - 应用重启后回到 `Idle`（状态不持久化）；
+  - Linux 无 SNI host 时改为面板横幅 + 窗口标题 `⏰` 前缀；
+  - 两端 `pomodoro` / `pomodoro-transition` 向量全过，既有 `cargo test` / `swift test` 全过，其余向量无改动。
+
 ---
 
 ## 验收基线（贯穿所有里程碑）
@@ -182,7 +221,8 @@
 - 所有联网与子进程调用均有超时与降级。
 - 两端在相同配置下对同一仓库/配置给出一致的状态结论。
 
-## 当前阶段不做（与 SDD §12 一致）
+## 当前阶段不做（与 SDD §13 一致）
 
 后端/服务端、跨机汇总、Web 端、历史/告警、多用户/鉴权、共享二进制 core / FFI。
 git 写操作只做 `pull --ff-only` / `push` / `fetch` 三个显式安全操作（M6、ADR-011）；不做 commit / merge / rebase / 冲突解决 / stash 等。
+番茄钟只做久坐提醒（M8、ADR-012）；不做长休息 / 统计 / 跨重启恢复 / 任务清单 / 多计时器。

@@ -15,5 +15,10 @@ toml = "1.1.4"
 toml_edit = "0.25.13"
 ureq = "3.3.0"
 
+# StatusNotifierItem tray for the pomodoro icon (SDD §11.4). Linux-only: pure
+# Rust (zbus), no system libdbus. On macOS/Windows the tray module is a stub.
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3.6", features = ["blocking"] }
+
 [build-dependencies]
 slint-build = "1.17.1"

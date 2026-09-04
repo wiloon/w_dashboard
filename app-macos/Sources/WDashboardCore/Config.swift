@@ -52,6 +52,27 @@ public struct WeatherConfig: Equatable, Sendable {
     }
 }
 
+/// `[pomodoro]` section (docs/sdd.md §11, ADR-012). Always present; an absent
+/// section means the defaults below.
+public struct PomodoroConfig: Equatable, Sendable {
+    public var enabled: Bool
+    public var focusMinutes: Int
+    public var breakMinutes: Int
+    public var notify: Bool
+    public var sound: Bool
+
+    public init(
+        enabled: Bool = true, focusMinutes: Int = 25, breakMinutes: Int = 5,
+        notify: Bool = true, sound: Bool = true
+    ) {
+        self.enabled = enabled
+        self.focusMinutes = focusMinutes
+        self.breakMinutes = breakMinutes
+        self.notify = notify
+        self.sound = sound
+    }
+}
+
 public struct Config: Equatable, Sendable {
     public var refreshIntervalSecs: Int
     public var commandTimeoutSecs: Int
@@ -59,6 +80,7 @@ public struct Config: Equatable, Sendable {
     public var repos: [RepoConfig]
     public var clocks: [ClockConfig]
     public var weather: WeatherConfig?
+    public var pomodoro: PomodoroConfig
 
     public init(
         refreshIntervalSecs: Int,
@@ -66,7 +88,8 @@ public struct Config: Equatable, Sendable {
         fetchRemote: Bool,
         repos: [RepoConfig],
         clocks: [ClockConfig],
-        weather: WeatherConfig?
+        weather: WeatherConfig?,
+        pomodoro: PomodoroConfig = PomodoroConfig()
     ) {
         self.refreshIntervalSecs = refreshIntervalSecs
         self.commandTimeoutSecs = commandTimeoutSecs
@@ -74,6 +97,7 @@ public struct Config: Equatable, Sendable {
         self.repos = repos
         self.clocks = clocks
         self.weather = weather
+        self.pomodoro = pomodoro
     }
 
     public static func defaultConfig() -> Config {
@@ -253,13 +277,38 @@ public func loadConfig(path: String? = nil) throws -> Config {
         )
     }
 
+    let pomodoro = try parsePomodoro(doc.pomodoro)
+
     return Config(
         refreshIntervalSecs: refreshIntervalSecs,
         commandTimeoutSecs: commandTimeoutSecs,
         fetchRemote: fetchRemote,
         repos: repos,
         clocks: clocks,
-        weather: weather
+        weather: weather,
+        pomodoro: pomodoro
+    )
+}
+
+private func parsePomodoro(_ raw: [String: TOMLValue]?) throws -> PomodoroConfig {
+    let raw = raw ?? [:]
+    let defaults = PomodoroConfig()
+
+    func minutes(_ field: String, _ fallback: Int) throws -> Int {
+        guard let n = raw[field]?.intValue else { return fallback }
+        guard n > 0 else {
+            throw ConfigError.parse(
+                "pomodoro.\(field): must be a positive number of minutes, got \(n)")
+        }
+        return n
+    }
+
+    return PomodoroConfig(
+        enabled: raw["enabled"]?.boolValue ?? defaults.enabled,
+        focusMinutes: try minutes("focus_minutes", defaults.focusMinutes),
+        breakMinutes: try minutes("break_minutes", defaults.breakMinutes),
+        notify: raw["notify"]?.boolValue ?? defaults.notify,
+        sound: raw["sound"]?.boolValue ?? defaults.sound
     )
 }
 

@@ -1,0 +1,18 @@
+{
+  "input": {
+    "state": {
+      "phase": "FocusEnded",
+      "phase_started_at": 1700000000,
+      "focus_secs": 1500,
+      "break_secs": 300
+    },
+    "event": "Tick",
+    "now": 1700003300
+  },
+  "expected": {
+    "phase": "Idle",
+    "phase_started_at": null,
+    "focus_secs": 1500,
+    "break_secs": 300
+  }
+}

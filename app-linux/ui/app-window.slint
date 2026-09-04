@@ -44,10 +44,13 @@ export struct WeatherDayRow {
 }
 
 export component AppWindow inherits Window {
-    title: "w_dashboard";
+    title: root.window_title;
     preferred-width: 920px;
     preferred-height: 680px;
 
+    // Gets a "⏰ " prefix while a pomodoro alert is unacknowledged — also the
+    // no-tray fallback signal (SDD §11.4 step 6).
+    in-out property <string> window_title: "w_dashboard";
     in-out property <bool> dark_mode: true;
 
     // Palette — every color used below is derived from `dark_mode`, so the
@@ -105,6 +108,16 @@ export component AppWindow inherits Window {
 
     property <color> ok-color: dark_mode ? #4caf50 : #2e7d32;
 
+    // ---- Pomodoro (SDD §11, ADR-012). All values derived on the Rust side
+    // from PomodoroState + pomodoro_view; the UI only renders and fires events. ----
+    in-out property <bool> pomodoro_enabled: true;
+    in-out property <string> pomodoro_phase_label: "Idle";
+    in-out property <string> pomodoro_time_label: "";
+    in-out property <float> pomodoro_progress: 0.0;
+    in-out property <bool> pomodoro_running: false;
+    in-out property <bool> pomodoro_alerting: false;
+    in-out property <color> pomodoro_bar_color: #b0b6bd;
+
     callback refresh();
     callback add_repo(string, string);
     callback remove_repo(string);
@@ -113,6 +126,8 @@ export component AppWindow inherits Window {
     callback repo_action(string, string);
     // (repo path) — re-collect just this one row, no git write. See SDD §8, §8.1.
     callback repo_refresh(string);
+    // "start_focus" | "start_break" | "stop". See SDD §11.3 PomodoroEvent.
+    callback pomodoro_event(string);
 
     VerticalBox {
         padding: 14px;
@@ -137,6 +152,73 @@ export component AppWindow inherits Window {
             VerticalBox {
                 padding: 0px;
                 spacing: 20px;
+
+                // ---------------- Pomodoro ----------------
+                if pomodoro_enabled: VerticalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    Text { text: "Pomodoro"; font-size: 18px; font-weight: 700; color: text-primary; }
+                    Rectangle {
+                        border-radius: 8px;
+                        background: card-bg;
+                        border-width: pomodoro_alerting ? 2px : 1px;
+                        border-color: pomodoro_alerting ? pomodoro_bar_color : card-border;
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 8px;
+                            HorizontalBox {
+                                padding: 0px;
+                                Text {
+                                    text: pomodoro_phase_label;
+                                    color: text-primary;
+                                    font-size: 16px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                                Text {
+                                    text: pomodoro_time_label;
+                                    color: pomodoro_alerting ? pomodoro_bar_color : text-primary;
+                                    font-size: 22px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Rectangle {
+                                height: 6px;
+                                border-radius: 3px;
+                                background: card-border;
+                                clip: true;
+                                Rectangle {
+                                    x: 0;
+                                    y: 0;
+                                    height: parent.height;
+                                    width: parent.width * pomodoro_progress;
+                                    border-radius: 3px;
+                                    background: pomodoro_bar_color;
+                                }
+                            }
+                            HorizontalBox {
+                                padding: 0px;
+                                spacing: 8px;
+                                Button {
+                                    text: "Start focus";
+                                    clicked => { pomodoro_event("start_focus"); }
+                                }
+                                Button {
+                                    text: "Start break";
+                                    clicked => { pomodoro_event("start_break"); }
+                                }
+                                Button {
+                                    text: "Stop";
+                                    enabled: pomodoro_running;
+                                    clicked => { pomodoro_event("stop"); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                        }
+                    }
+                }
 
                 // ---------------- Repos ----------------
                 VerticalBox {
@@ -452,6 +534,7 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+
             }
         }
     }

@@ -44,7 +44,7 @@ Accepted
 
 - **Positive**：完全掌控数据采集与展示；统一整合天气/时钟/git/chezmoi；无第三方聚合 CLI 依赖；可按需深度演进。
 - **Negative**：投入大；重复实现了部分已有能力。
-- **Mitigation**：用 YAGNI 约束范围（见 SDD §11 非目标），不让"造轮子"扩散成"造大而全的轮子"；两端直接复用 `git`/`chezmoi` 底层命令而非从零实现 git 协议，降低不必要的重复。
+- **Mitigation**：用 YAGNI 约束范围（见 SDD 非目标章节），不让"造轮子"扩散成"造大而全的轮子"；两端直接复用 `git`/`chezmoi` 底层命令而非从零实现 git 协议，降低不必要的重复。
 
 ## Revisit Trigger
 

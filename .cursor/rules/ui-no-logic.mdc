@@ -20,3 +20,4 @@ UI 只负责：调用本端采集层接口、把耗时调用放到后台线程/�
 - 所有采集调用必须在后台线程/队列执行（Rust 后台线程、Swift `Task`/`DispatchQueue`），不得阻塞 UI 主线程。
 - 两端信息架构与状态颜色语义保持一致（绿=Clean，黄=NeedsPush/NeedsPull/Dirty，红=Diverged/Error，灰=NoUpstream/未配置）。
 - git 写操作只做三个显式安全按钮：`pull --ff-only` / `push` / `fetch`（见 ADR-011、SDD §7.5）。不做 commit / 非 ff merge / rebase / 冲突解决 / stash，也不替用户执行 chezmoi apply。按钮显隐由采集层的纯函数 `allowed_actions` 决定（UI 只渲染），操作调用与线程调度归 UI 层。
+- 番茄钟（见 ADR-012、SDD §11）：状态迁移与展示派生是纯函数 `pomodoro_reduce` / `pomodoro_view`（属核心层，进测试向量）；1 秒 tick 定时器、托盘/菜单栏图标状态机、系统通知、提示音都是各端 UI 层副作用。UI 不得自行判断"时段是否结束"——只调 `pomodoro_reduce(state, Tick, now)` 拿结果。

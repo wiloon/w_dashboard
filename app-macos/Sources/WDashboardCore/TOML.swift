@@ -60,6 +60,7 @@ public struct TOMLDocument: Sendable {
     public var clocks: [[String: TOMLValue]] = []
     public var weather: [String: TOMLValue]?
     public var chezmoi: [String: TOMLValue]?
+    public var pomodoro: [String: TOMLValue]?
 }
 
 /// Strip a trailing `# ...` comment that is not inside a quoted string.
@@ -148,6 +149,7 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
         case general
         case chezmoi
         case weather
+        case pomodoro
         case reposArray
         case clocksArray
         case unknownTable
@@ -186,6 +188,9 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
             case "weather":
                 doc.weather = doc.weather ?? [:]
                 target = .weather
+            case "pomodoro":
+                doc.pomodoro = doc.pomodoro ?? [:]
+                target = .pomodoro
             default:
                 target = .unknownTable
             }
@@ -201,6 +206,8 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
             doc.chezmoi?[key] = value
         case .weather:
             doc.weather?[key] = value
+        case .pomodoro:
+            doc.pomodoro?[key] = value
         case .reposArray:
             guard !doc.repos.isEmpty else { break }
             doc.repos[doc.repos.count - 1][key] = value

@@ -7,6 +7,7 @@
 // pool: repos are collected a few at a time and each row updates as soon as
 // its own result lands, instead of the whole list being replaced at the end.
 
+import AppKit
 import Foundation
 import SwiftUI
 import WDashboardCore
@@ -43,6 +44,14 @@ final class AppState: ObservableObject {
     @Published var repoFormError: String = ""
     @Published var configLoadError: String?
 
+    // ---------------- Pomodoro (docs/sdd.md §11, ADR-012) ----------------
+    /// Display data for the panel, recomputed every tick. `pomodoroState` (the
+    /// authoritative in-memory state, never persisted) stays private.
+    @Published private(set) var pomodoro: PomodoroView =
+        PomodoroView(phase: .idle, remainingSecs: 0, elapsedSecs: 0, overtimeSecs: 0, progress: 0, alerting: false)
+    private var pomodoroState: PomodoroState = .idle(focusSecs: 1500, breakSecs: 300)
+    private var pomodoroTickTask: Task<Void, Never>?
+
     let configPath: String
 
     private var started = false
@@ -72,6 +81,10 @@ final class AppState: ObservableObject {
         }
         weatherConfigured = config.weather != nil
         clocks = Self.computeClocks(config.clocks, now: Date())
+        pomodoroState = PomodoroState.idle(
+            focusSecs: Int64(config.pomodoro.focusMinutes) * 60,
+            breakSecs: Int64(config.pomodoro.breakMinutes) * 60)
+        pomodoro = pomodoroView(pomodoroState, now: Self.nowUnix())
     }
 
     /// Called once from `ContentView.onAppear`. Kicks off the first
@@ -82,6 +95,72 @@ final class AppState: ObservableObject {
         refresh()
         startClockTimer()
         startAutoRefreshTimer()
+        startPomodoroTimer()
+    }
+
+    // ---------------- Pomodoro ----------------
+
+    /// Notified on every phase change so it can drive the menu-bar icon
+    /// (docs/sdd.md §11.4 step 3). Set by the App layer.
+    var onPomodoroPhaseChange: ((PomodoroPhase) -> Void)?
+
+    /// Apply one pomodoro event (panel button or, later, a menu item): reduce,
+    /// recompute the view, and notify the icon.
+    func pomodoroEvent(_ event: PomodoroEvent) {
+        applyPomodoro(event: event, now: Self.nowUnix())
+    }
+
+    private func startPomodoroTimer() {
+        pomodoroTickTask?.cancel()
+        guard config.pomodoro.enabled else { return }
+        pomodoroTickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self else { return }
+                self.applyPomodoro(event: .tick, now: Self.nowUnix())
+            }
+        }
+    }
+
+    private func applyPomodoro(event: PomodoroEvent, now: Int64) {
+        let previousPhase = pomodoroState.phase
+        pomodoroState = pomodoroReduce(pomodoroState, event, now: now)
+        pomodoro = pomodoroView(pomodoroState, now: now)
+
+        let newPhase = pomodoroState.phase
+        guard newPhase != previousPhase else { return }
+
+        onPomodoroPhaseChange?(newPhase)
+
+        if newPhase == .focusEnded || newPhase == .breakEnded {
+            Self.fireAlert(
+                phase: newPhase,
+                notify: config.pomodoro.notify,
+                sound: config.pomodoro.sound)
+        }
+    }
+
+    /// Phase-edge side effects (docs/sdd.md §11.4 step 4): one notification, plus
+    /// a sound only on `focusEnded`. Best-effort — failures are ignored (SDD §2).
+    private static func fireAlert(phase: PomodoroPhase, notify: Bool, sound: Bool) {
+        if notify {
+            let body =
+                phase == .focusEnded
+                ? "Focus session done — time to get up and move."
+                : "Break's over — ready to focus?"
+            let script = "display notification \"\(body)\" with title \"w_dashboard\""
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            task.arguments = ["-e", script]
+            try? task.run()
+        }
+        if sound, phase == .focusEnded {
+            NSSound(named: "Glass")?.play()
+        }
+    }
+
+    private static func nowUnix() -> Int64 {
+        Int64(Date().timeIntervalSince1970)
     }
 
     func refresh() {

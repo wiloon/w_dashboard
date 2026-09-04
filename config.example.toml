@@ -39,3 +39,16 @@ location = "Beijing"
 # longitude = 116.4074
 temperature_unit = "celsius"
 forecast_days = 5
+
+[pomodoro]
+# Enable the Pomodoro panel and tray/menu-bar icon state. false = panel hidden,
+# tray keeps only its existing "click to summon window" behavior.
+enabled = true
+# Focus session length in minutes.
+focus_minutes = 25
+# Break session length in minutes.
+break_minutes = 5
+# Post one system notification when a session ends.
+notify = true
+# Play a sound once when a session ends.
+sound = true

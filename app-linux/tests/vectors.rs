@@ -10,6 +10,9 @@ use serde_json::Value;
 
 use w_dashboard_linux::git::{allowed_actions, derive_state, parse_porcelain_v2, DeriveInput};
 use w_dashboard_linux::model::RepoState;
+use w_dashboard_linux::pomodoro::{
+    pomodoro_reduce, pomodoro_view, PomodoroEvent, PomodoroPhase, PomodoroState,
+};
 use w_dashboard_linux::weather::{parse_forecast_json, wmo_description, wmo_icon_index, WEATHER_ICON_NAMES};
 
 fn vectors_dir(sub: &str) -> PathBuf {
@@ -262,5 +265,131 @@ fn weather_json_vectors() {
                 }
             }
         }
+    }
+}
+
+// ---- Pomodoro (docs/sdd.md §11, ADR-012) ----
+
+fn pomo_phase_from_str(s: &str, path: &Path) -> PomodoroPhase {
+    match s {
+        "Idle" => PomodoroPhase::Idle,
+        "Focus" => PomodoroPhase::Focus,
+        "Break" => PomodoroPhase::Break,
+        "FocusEnded" => PomodoroPhase::FocusEnded,
+        "BreakEnded" => PomodoroPhase::BreakEnded,
+        other => panic!("unknown pomodoro phase {other:?} in {path:?}"),
+    }
+}
+
+fn pomo_event_from_str(s: &str, path: &Path) -> PomodoroEvent {
+    match s {
+        "StartFocus" => PomodoroEvent::StartFocus,
+        "StartBreak" => PomodoroEvent::StartBreak,
+        "Stop" => PomodoroEvent::Stop,
+        "Tick" => PomodoroEvent::Tick,
+        other => panic!("unknown pomodoro event {other:?} in {path:?}"),
+    }
+}
+
+#[derive(Deserialize)]
+struct PomodoroStateVec {
+    phase: String,
+    phase_started_at: Option<i64>,
+    focus_secs: i64,
+    break_secs: i64,
+}
+
+impl PomodoroStateVec {
+    fn to_state(&self, path: &Path) -> PomodoroState {
+        PomodoroState {
+            phase: pomo_phase_from_str(&self.phase, path),
+            phase_started_at: self.phase_started_at,
+            focus_secs: self.focus_secs,
+            break_secs: self.break_secs,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct PomodoroTransitionVector {
+    input: PomodoroTransitionInput,
+    expected: PomodoroStateVec,
+}
+
+#[derive(Deserialize)]
+struct PomodoroTransitionInput {
+    state: PomodoroStateVec,
+    event: String,
+    now: i64,
+}
+
+#[test]
+fn pomodoro_transition_vectors() {
+    let dir = vectors_dir("pomodoro-transition");
+    let files = json_files(&dir);
+    assert!(!files.is_empty(), "no pomodoro-transition vectors found in {dir:?}");
+
+    for path in files {
+        let text = fs::read_to_string(&path).unwrap();
+        let vector: PomodoroTransitionVector =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let state = vector.input.state.to_state(&path);
+        let event = pomo_event_from_str(&vector.input.event, &path);
+        let got = pomodoro_reduce(state, event, vector.input.now);
+        let want = vector.expected.to_state(&path);
+        assert_eq!(got, want, "pomodoro transition mismatch in {path:?}");
+    }
+}
+
+#[derive(Deserialize)]
+struct PomodoroViewVector {
+    input: PomodoroViewInput,
+    expected: PomodoroViewExpected,
+}
+
+#[derive(Deserialize)]
+struct PomodoroViewInput {
+    phase: String,
+    phase_started_at: Option<i64>,
+    focus_secs: i64,
+    break_secs: i64,
+    now: i64,
+}
+
+#[derive(Deserialize)]
+struct PomodoroViewExpected {
+    phase: String,
+    remaining_secs: i64,
+    elapsed_secs: i64,
+    overtime_secs: i64,
+    progress: f64,
+    alerting: bool,
+}
+
+#[test]
+fn pomodoro_view_vectors() {
+    let dir = vectors_dir("pomodoro");
+    let files = json_files(&dir);
+    assert!(!files.is_empty(), "no pomodoro vectors found in {dir:?}");
+
+    for path in files {
+        let text = fs::read_to_string(&path).unwrap();
+        let vector: PomodoroViewVector =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+        let state = PomodoroState {
+            phase: pomo_phase_from_str(&vector.input.phase, &path),
+            phase_started_at: vector.input.phase_started_at,
+            focus_secs: vector.input.focus_secs,
+            break_secs: vector.input.break_secs,
+        };
+        let got = pomodoro_view(&state, vector.input.now);
+        let exp = &vector.expected;
+
+        assert_eq!(got.phase, pomo_phase_from_str(&exp.phase, &path), "phase mismatch in {path:?}");
+        assert_eq!(got.remaining_secs, exp.remaining_secs, "remaining_secs mismatch in {path:?}");
+        assert_eq!(got.elapsed_secs, exp.elapsed_secs, "elapsed_secs mismatch in {path:?}");
+        assert_eq!(got.overtime_secs, exp.overtime_secs, "overtime_secs mismatch in {path:?}");
+        assert_eq!(got.progress, exp.progress, "progress mismatch in {path:?}");
+        assert_eq!(got.alerting, exp.alerting, "alerting mismatch in {path:?}");
     }
 }

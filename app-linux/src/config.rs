@@ -47,6 +47,29 @@ pub struct WeatherConfig {
     pub forecast_days: u32,
 }
 
+/// `[pomodoro]` section (docs/sdd.md §11, ADR-012). Always present; an absent
+/// section means the defaults below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PomodoroConfig {
+    pub enabled: bool,
+    pub focus_minutes: u32,
+    pub break_minutes: u32,
+    pub notify: bool,
+    pub sound: bool,
+}
+
+impl Default for PomodoroConfig {
+    fn default() -> Self {
+        PomodoroConfig {
+            enabled: true,
+            focus_minutes: 25,
+            break_minutes: 5,
+            notify: true,
+            sound: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub refresh_interval_secs: u64,
@@ -55,6 +78,7 @@ pub struct Config {
     pub repos: Vec<RepoConfig>,
     pub clocks: Vec<ClockConfig>,
     pub weather: Option<WeatherConfig>,
+    pub pomodoro: PomodoroConfig,
 }
 
 fn default_clocks() -> Vec<ClockConfig> {
@@ -79,6 +103,7 @@ impl Default for Config {
             repos: Vec::new(),
             clocks: default_clocks(),
             weather: None,
+            pomodoro: PomodoroConfig::default(),
         }
     }
 }
@@ -112,11 +137,21 @@ struct WeatherConfigRaw {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct PomodoroConfigRaw {
+    enabled: Option<bool>,
+    focus_minutes: Option<i64>,
+    break_minutes: Option<i64>,
+    notify: Option<bool>,
+    sound: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct ConfigRaw {
     general: Option<GeneralRaw>,
     repos: Option<Vec<RepoConfigRaw>>,
     clocks: Option<Vec<ClockConfigRaw>>,
     weather: Option<WeatherConfigRaw>,
+    pomodoro: Option<PomodoroConfigRaw>,
 }
 
 /// Expand `$VAR` / `${VAR}` references using the current environment.
@@ -278,6 +313,8 @@ pub fn load_config(path: Option<&Path>) -> Result<Config, ConfigError> {
         None => None,
     };
 
+    let pomodoro = parse_pomodoro(raw.pomodoro)?;
+
     Ok(Config {
         refresh_interval_secs: general.refresh_interval_secs.unwrap_or(900),
         command_timeout_secs: general.command_timeout_secs.unwrap_or(20),
@@ -285,6 +322,30 @@ pub fn load_config(path: Option<&Path>) -> Result<Config, ConfigError> {
         repos,
         clocks,
         weather,
+        pomodoro,
+    })
+}
+
+fn parse_pomodoro(raw: Option<PomodoroConfigRaw>) -> Result<PomodoroConfig, ConfigError> {
+    let raw = raw.unwrap_or_default();
+    let default = PomodoroConfig::default();
+
+    let minutes = |field: &str, value: Option<i64>, fallback: u32| -> Result<u32, ConfigError> {
+        match value {
+            None => Ok(fallback),
+            Some(n) if n > 0 => Ok(n as u32),
+            Some(n) => Err(ConfigError::Parse(format!(
+                "pomodoro.{field}: must be a positive number of minutes, got {n}"
+            ))),
+        }
+    };
+
+    Ok(PomodoroConfig {
+        enabled: raw.enabled.unwrap_or(default.enabled),
+        focus_minutes: minutes("focus_minutes", raw.focus_minutes, default.focus_minutes)?,
+        break_minutes: minutes("break_minutes", raw.break_minutes, default.break_minutes)?,
+        notify: raw.notify.unwrap_or(default.notify),
+        sound: raw.sound.unwrap_or(default.sound),
     })
 }
 

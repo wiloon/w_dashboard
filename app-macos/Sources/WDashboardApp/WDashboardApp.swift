@@ -22,6 +22,10 @@ struct WDashboardApp: App {
                             openWindow(id: "main")
                         }
                     }
+                    // Drive the menu-bar icon from pomodoro phase changes (SDD §11.4).
+                    appState.onPomodoroPhaseChange = { phase in
+                        appDelegate.statusItemController.setPomodoroPhase(phase)
+                    }
                 }
         }
     }

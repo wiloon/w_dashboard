@@ -1,0 +1,17 @@
+{
+  "input": {
+    "phase": "BreakEnded",
+    "phase_started_at": 1700000000,
+    "focus_secs": 1500,
+    "break_secs": 300,
+    "now": 1700000420
+  },
+  "expected": {
+    "phase": "BreakEnded",
+    "remaining_secs": 0,
+    "elapsed_secs": 300,
+    "overtime_secs": 120,
+    "progress": 1.0,
+    "alerting": true
+  }
+}

@@ -224,4 +224,76 @@ final class VectorTests: XCTestCase {
             }
         }
     }
+
+    // ---- Pomodoro (docs/sdd.md §11, ADR-012) ----
+
+    private struct PomodoroStateVec: Decodable, Equatable {
+        var phase: PomodoroPhase
+        var phase_started_at: Int64?
+        var focus_secs: Int64
+        var break_secs: Int64
+
+        var asState: PomodoroState {
+            PomodoroState(
+                phase: phase, phaseStartedAt: phase_started_at,
+                focusSecs: focus_secs, breakSecs: break_secs)
+        }
+    }
+
+    func testPomodoroTransitionVectors() throws {
+        struct Vector: Decodable {
+            struct Input: Decodable {
+                var state: PomodoroStateVec
+                var event: PomodoroEvent
+                var now: Int64
+            }
+            var input: Input
+            var expected: PomodoroStateVec
+        }
+
+        for file in try vectorFiles("pomodoro-transition") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            let got = pomodoroReduce(vector.input.state.asState, vector.input.event, now: vector.input.now)
+            XCTAssertEqual(got, vector.expected.asState, "pomodoro transition mismatch in \(name)")
+        }
+    }
+
+    func testPomodoroViewVectors() throws {
+        struct Vector: Decodable {
+            struct Input: Decodable {
+                var phase: PomodoroPhase
+                var phase_started_at: Int64?
+                var focus_secs: Int64
+                var break_secs: Int64
+                var now: Int64
+            }
+            struct Expected: Decodable {
+                var phase: PomodoroPhase
+                var remaining_secs: Int64
+                var elapsed_secs: Int64
+                var overtime_secs: Int64
+                var progress: Double
+                var alerting: Bool
+            }
+            var input: Input
+            var expected: Expected
+        }
+
+        for file in try vectorFiles("pomodoro") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            let state = PomodoroState(
+                phase: vector.input.phase, phaseStartedAt: vector.input.phase_started_at,
+                focusSecs: vector.input.focus_secs, breakSecs: vector.input.break_secs)
+            let got = pomodoroView(state, now: vector.input.now)
+            let exp = vector.expected
+            XCTAssertEqual(got.phase, exp.phase, "phase mismatch in \(name)")
+            XCTAssertEqual(got.remainingSecs, exp.remaining_secs, "remaining_secs mismatch in \(name)")
+            XCTAssertEqual(got.elapsedSecs, exp.elapsed_secs, "elapsed_secs mismatch in \(name)")
+            XCTAssertEqual(got.overtimeSecs, exp.overtime_secs, "overtime_secs mismatch in \(name)")
+            XCTAssertEqual(got.progress, exp.progress, "progress mismatch in \(name)")
+            XCTAssertEqual(got.alerting, exp.alerting, "alerting mismatch in \(name)")
+        }
+    }
 }

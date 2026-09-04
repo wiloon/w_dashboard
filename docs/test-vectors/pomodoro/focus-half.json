@@ -1,0 +1,17 @@
+{
+  "input": {
+    "phase": "Focus",
+    "phase_started_at": 1700000000,
+    "focus_secs": 1500,
+    "break_secs": 300,
+    "now": 1700000750
+  },
+  "expected": {
+    "phase": "Focus",
+    "remaining_secs": 750,
+    "elapsed_secs": 750,
+    "overtime_secs": 0,
+    "progress": 0.5,
+    "alerting": false
+  }
+}
