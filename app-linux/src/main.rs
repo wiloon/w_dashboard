@@ -49,6 +49,7 @@ fn repo_row_from_status(s: &RepoStatus) -> RepoRow {
         action_busy: false,
         action_note: SharedString::default(),
         action_ok: false,
+        row_refreshing: false,
     }
 }
 
@@ -72,12 +73,13 @@ struct RepoUpdate {
     status: RepoStatus,
 }
 
-/// Result of a per-repo sync action (docs/sdd.md §7.5): the action outcome plus
-/// a fresh status collected right after, so the row's badge reflects the new
-/// state. Routed to the row by `path` (config order may have changed).
+/// A targeted single-row re-collection (docs/sdd.md §8.1 "定向单行采集"): a fresh
+/// status for one repo, routed back to its row by `path` (config order may have
+/// changed). `result` is `Some` for a Pull/Push/Fetch action (§7.5), `None` for
+/// the plain per-row refresh button (§8).
 struct RepoActionUpdate {
     path: String,
-    result: git::GitActionResult,
+    result: Option<git::GitActionResult>,
     status: RepoStatus,
 }
 
@@ -162,6 +164,7 @@ impl RepoUi {
         row.action_busy = false;
         row.action_note = SharedString::default();
         row.action_ok = false;
+        row.row_refreshing = false;
         row
     }
 
@@ -369,17 +372,24 @@ fn main() -> anyhow::Result<()> {
             };
             let mut row = repo_row_from_status(&update.status);
             row.action_busy = false;
-            if update.result.ok {
-                row.action_ok = true;
-                row.action_note = update.result.summary.clone().into();
-            } else {
-                row.action_ok = false;
-                row.action_note = update
-                    .result
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "action failed".to_string())
-                    .into();
+            row.row_refreshing = false;
+            match &update.result {
+                // Pull/Push/Fetch (§7.5): overlay the one-line action message.
+                Some(result) if result.ok => {
+                    row.action_ok = true;
+                    row.action_note = result.summary.clone().into();
+                }
+                Some(result) => {
+                    row.action_ok = false;
+                    row.action_note = result
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "action failed".to_string())
+                        .into();
+                }
+                // Plain per-row refresh (§8): no message; `repo_row_from_status`
+                // already left `action_note` empty, clearing any prior result.
+                None => {}
             }
             poll_repo_ui.model.set_row_data(idx, row);
             ui.set_last_updated(now_hms().into());
@@ -521,7 +531,59 @@ fn main() -> anyhow::Result<()> {
                 let status = git::collect_repo(&repo_cfg, false, timeout);
                 let _ = action_tx.send(RepoActionUpdate {
                     path: repo_cfg.path.display().to_string(),
-                    result,
+                    result: Some(result),
+                    status,
+                });
+            });
+        });
+    }
+
+    {
+        // Per-row manual refresh (SDD §8, §8.1 "定向单行采集"): re-collect just
+        // this repo with the same params a full refresh would use (honouring
+        // `fetch_remote`), no git write, no new generation token.
+        let shared_cfg = shared_cfg.clone();
+        let repo_ui = repo_ui.clone();
+        let action_tx = action_tx.clone();
+        ui.on_repo_refresh(move |raw_path| {
+            let path = raw_path.to_string();
+
+            let Some(idx) = row_index_by_path(&repo_ui.model, &path) else {
+                return;
+            };
+            let Some(mut row) = repo_ui.model.row_data(idx) else {
+                return;
+            };
+            if row.action_busy || row.row_refreshing {
+                return;
+            }
+            row.row_refreshing = true;
+            row.action_note = SharedString::default();
+            repo_ui.model.set_row_data(idx, row);
+
+            let (repo_cfg, fetch_remote, timeout) = {
+                let guard = shared_cfg.lock().unwrap();
+                let repo_cfg = guard
+                    .repos
+                    .iter()
+                    .find(|r| r.path.display().to_string() == path)
+                    .cloned();
+                (
+                    repo_cfg,
+                    guard.fetch_remote,
+                    Duration::from_secs(guard.command_timeout_secs),
+                )
+            };
+            let Some(repo_cfg) = repo_cfg else {
+                return;
+            };
+
+            let action_tx = action_tx.clone();
+            std::thread::spawn(move || {
+                let status = git::collect_repo(&repo_cfg, fetch_remote, timeout);
+                let _ = action_tx.send(RepoActionUpdate {
+                    path: repo_cfg.path.display().to_string(),
+                    result: None,
                     status,
                 });
             });

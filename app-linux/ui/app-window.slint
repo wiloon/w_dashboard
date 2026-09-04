@@ -19,6 +19,8 @@ export struct RepoRow {
     action_busy: bool,
     action_note: string,
     action_ok: bool,
+    // This row's single-row manual refresh is running (SDD §8.1 定向单行采集).
+    row_refreshing: bool,
 }
 
 export struct RepoEntry {
@@ -109,6 +111,8 @@ export component AppWindow inherits Window {
     callback update_repo(string, string, string);
     // (repo path, action) where action is "pull" | "push" | "fetch". See SDD §7.5.
     callback repo_action(string, string);
+    // (repo path) — re-collect just this one row, no git write. See SDD §8, §8.1.
+    callback repo_refresh(string);
 
     VerticalBox {
         padding: 14px;
@@ -290,17 +294,17 @@ export component AppWindow inherits Window {
                                     horizontal-stretch: 0;
                                     if repo.error == "" && repo.can_pull: Button {
                                         text: repo.action_busy ? "Pulling..." : "Pull";
-                                        enabled: !repo.action_busy && !refreshing;
+                                        enabled: !repo.action_busy && !repo.row_refreshing && !refreshing;
                                         clicked => { repo_action(repo.path, "pull"); }
                                     }
                                     if repo.error == "" && repo.can_push: Button {
                                         text: repo.action_busy ? "Pushing..." : "Push";
-                                        enabled: !repo.action_busy && !refreshing;
+                                        enabled: !repo.action_busy && !repo.row_refreshing && !refreshing;
                                         clicked => { repo_action(repo.path, "push"); }
                                     }
                                     if repo.error == "" && repo.can_fetch && !auto_fetch: Button {
                                         text: repo.action_busy ? "Fetching..." : "Fetch";
-                                        enabled: !repo.action_busy && !refreshing;
+                                        enabled: !repo.action_busy && !repo.row_refreshing && !refreshing;
                                         clicked => { repo_action(repo.path, "fetch"); }
                                     }
                                     Text {
@@ -308,6 +312,31 @@ export component AppWindow inherits Window {
                                         color: repo.state_color;
                                         font-weight: 700;
                                         vertical-alignment: center;
+                                    }
+                                    // Single-row refresh, pinned to the far right of the
+                                    // row: re-check just this repo without a full refresh
+                                    // (SDD §8, §8.1). Icon-only; available in every state,
+                                    // incl. Error.
+                                    Rectangle {
+                                        width: 24px;
+                                        height: 24px;
+                                        border-radius: 4px;
+                                        property <bool> row_refresh_enabled:
+                                            !repo.action_busy && !repo.row_refreshing && !refreshing;
+                                        background: refresh_ta.has-hover && row_refresh_enabled
+                                            ? (dark_mode ? #ffffff1f : #00000014)
+                                            : transparent;
+                                        refresh_ta := TouchArea {
+                                            enabled: row_refresh_enabled;
+                                            clicked => { repo_refresh(repo.path); }
+                                        }
+                                        Image {
+                                            source: @image-url("icons/refresh.svg");
+                                            width: 14px;
+                                            height: 14px;
+                                            colorize: repo.row_refreshing ? text-secondary : text-tertiary;
+                                            opacity: repo.row_refreshing ? 0.5 : 1.0;
+                                        }
                                     }
                                 }
                             }

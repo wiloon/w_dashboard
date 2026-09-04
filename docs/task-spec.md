@@ -151,6 +151,27 @@
   - 操作期间该行按钮禁用、显示进行中文案；操作只影响该行，其余行照常；
   - 两端 `repo-actions` 向量全过，既有 `cargo test` / `swift test` 全过，向量除新增 `repo-actions/` 外无改动。
 
+## M7 — 单行手动刷新按钮
+
+> 依据 [ADR-010 后续](architecture/adr-010-incremental-repo-refresh.md) 与 [SDD §8、§8.1](sdd.md)。
+> 纯 UI 层：复用 §7.5 已建立的"定向单行采集"通道，不动采集/派生规则，不改测试向量。
+
+- **T7.1** 规格先行：ADR-010 加"后续（单行手动刷新）"一节；SDD §8 拆出"手动刷新（整体/单行）"两条、§8.1 末尾把"操作后重采该行"扩写为通用的"定向单行采集"（两种触发场景 + 共同语义）、§9 Repos 补单行刷新按钮。
+- **T7.2** app-linux 实现：
+  - `ui/app-window.slint`：`RepoRow` 加 `row_refreshing: bool`；新增 `callback repo_refresh(string)`；repo 卡片按钮行加一个小的**图标按钮**（`ui/icons/refresh.svg`，双箭头循环图标，`colorize` 跟随文字色；任何状态可用，含 `Error`），`row_refreshing` / `action_busy` / `refreshing` 时禁用、刷新中图标半透明。
+  - `src/main.rs`：`RepoActionUpdate.result` 改 `Option<GitActionResult>`（`None` = 单行刷新）；`on_repo_refresh` 标记该行 `row_refreshing` → 后台线程 `collect_repo`（传当前 `fetch_remote`）→ 复用 `action_tx` 回填该行、清空 `action_note`；`repo_row_from_status` / `seeded_row` 处理新字段。
+- **T7.3** app-macos 实现（对齐同一套语义）：
+  - `Sources/WDashboardApp/AppState.swift`：`Set<String> repoRowRefreshingPaths`；`refreshRepoRow(path:)` 用 `repoQueue` 跑 `collectRepo`（传 `config.fetchRemote`），主线程按 `path` 回填、清 `repoActionResults[path]`；整体 `refresh()` 一并清空该集合。
+  - `Sources/WDashboardApp/RepoListView.swift`：每行加小的**图标按钮**（SF Symbol `arrow.triangle.2.circlepath`，`.borderless`；刷新中换成 `ProgressView` 转圈），`rowRefreshing` / `busy` / `refreshing` 时禁用；`Error` 行也显示。
+- **T7.4** 一致性核对：两端对照 SDD §8.1"定向单行采集"共同语义逐条走查（不分配新 token / 同参数含 fetch / 采集期间该行按钮全禁用 / 清除上一次操作提示 / 不改 `refreshing` 但更新 `last_updated`）。
+- **验收**：
+  - 任一仓库行点小 Refresh 按钮，只有该行进入"Refreshing…"并在采完后回填，其余行、`refreshing` 状态、天气都不动；
+  - 顶部大 Refresh 按钮行为不变（整体刷新）；
+  - `Error` 行也能点单行 Refresh；
+  - 单行刷新会清掉该行上一次的 Pull/Push/Fetch 结果提示；
+  - 整体刷新进行中时该行所有按钮（含单行 Refresh）禁用；
+  - 既有 `cargo test` / `swift test` 全过，测试向量无改动。
+
 ---
 
 ## 验收基线（贯穿所有里程碑）
