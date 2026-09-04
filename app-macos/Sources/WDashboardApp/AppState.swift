@@ -33,6 +33,9 @@ final class AppState: ObservableObject {
     /// Repo paths whose Pull/Push/Fetch action is currently running. Those rows
     /// show a progress label and disabled buttons (docs/sdd.md §7.5).
     @Published private(set) var repoActionBusyPaths: Set<String> = []
+    /// Repo paths whose single-row manual refresh is running (docs/sdd.md §8.1).
+    /// Those rows disable every button and show a progress label.
+    @Published private(set) var repoRowRefreshingPaths: Set<String> = []
     /// Last action result per repo path, shown inline until the next full
     /// refresh clears it.
     @Published private(set) var repoActionResults: [String: GitActionResult] = [:]
@@ -92,6 +95,7 @@ final class AppState: ObservableObject {
 
         // A full refresh clears any lingering per-row action state (SDD §7.5).
         repoActionBusyPaths.removeAll()
+        repoRowRefreshingPaths.removeAll()
         repoActionResults.removeAll()
 
         // Seed the list in config order, carrying over whatever we already
@@ -181,6 +185,36 @@ final class AppState: ObservableObject {
     private func applyAction(result: GitActionResult, status: RepoStatus, path: String) {
         repoActionBusyPaths.remove(path)
         repoActionResults[path] = result
+        if let index = repoStatuses.firstIndex(where: { $0.path == path }) {
+            repoStatuses[index] = status
+            pendingRepoIndices.remove(index)
+        }
+        lastUpdated = Self.lastUpdatedFormatter.string(from: Date())
+    }
+
+    /// Per-row manual refresh (docs/sdd.md §8, §8.1 "定向单行采集"): re-collect
+    /// just this repo with the same params a full refresh uses (honouring
+    /// `fetchRemote`), with no git write and no new generation token. Clears any
+    /// prior action result on the row.
+    func refreshRepoRow(path: String) {
+        guard !repoRowRefreshingPaths.contains(path), !repoActionBusyPaths.contains(path) else { return }
+        guard let repo = config.repos.first(where: { $0.path == path }) else { return }
+        let fetchRemote = config.fetchRemote
+        let timeout = TimeInterval(config.commandTimeoutSecs)
+
+        repoRowRefreshingPaths.insert(path)
+        repoActionResults.removeValue(forKey: path)
+
+        repoQueue.addOperation { [weak self] in
+            let status = collectRepo(repo: repo, fetchRemote: fetchRemote, timeout: timeout)
+            Task { @MainActor in
+                self?.applyRowRefresh(status: status, path: path)
+            }
+        }
+    }
+
+    private func applyRowRefresh(status: RepoStatus, path: String) {
+        repoRowRefreshingPaths.remove(path)
         if let index = repoStatuses.firstIndex(where: { $0.path == path }) {
             repoStatuses[index] = status
             pendingRepoIndices.remove(index)

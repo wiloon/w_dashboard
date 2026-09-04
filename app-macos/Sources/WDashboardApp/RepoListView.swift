@@ -70,7 +70,9 @@ private struct RepoRowView: View {
     @State private var expanded = false
 
     private var busy: Bool { appState.repoActionBusyPaths.contains(repo.path) }
-    private var actionsDisabled: Bool { busy || appState.refreshing }
+    /// This row's single-row manual refresh is running (SDD §8.1).
+    private var rowRefreshing: Bool { appState.repoRowRefreshingPaths.contains(repo.path) }
+    private var actionsDisabled: Bool { busy || rowRefreshing || appState.refreshing }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -91,6 +93,24 @@ private struct RepoRowView: View {
                 Button(expanded ? "Hide" : "Details") { expanded.toggle() }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                // Single-row refresh, pinned to the far right of the row: re-check
+                // just this repo without a full refresh (SDD §8, §8.1). Available
+                // in every state, incl. Error. Icon-only; spins while collecting.
+                if !pending {
+                    Button {
+                        appState.refreshRepoRow(path: repo.path)
+                    } label: {
+                        if rowRefreshing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .disabled(actionsDisabled)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .help("Refresh this repo")
+                }
             }
             if let result = appState.repoActionResults[repo.path] {
                 Text(result.ok ? result.summary : (result.error ?? "action failed"))
