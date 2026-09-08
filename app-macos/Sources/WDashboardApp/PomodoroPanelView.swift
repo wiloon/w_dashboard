@@ -26,8 +26,12 @@ struct PomodoroPanelView: View {
                     .tint(accent)
 
                 HStack(spacing: 8) {
-                    Button("Start focus") { appState.pomodoroEvent(.startFocus) }
-                    Button("Start break") { appState.pomodoroEvent(.startBreak) }
+                    // One toggle button that walks the cycle Focus → Break → Focus…
+                    // (ADR-012 「Next」). Its label always names the *next* click, and
+                    // in a `*Ended` phase that same click also acknowledges the alert.
+                    Button(primaryLabel) { appState.pomodoroEvent(primaryEvent) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(view.alerting ? accent : .accentColor)
                     Button("Stop") { appState.pomodoroEvent(.stop) }
                         .disabled(view.phase == .idle)
                     Spacer()
@@ -43,6 +47,19 @@ struct PomodoroPanelView: View {
                     )
             )
         }
+    }
+
+    /// Focus / FocusEnded → the next click starts a break; every other phase
+    /// (Idle, Break, BreakEnded) → the next click starts a focus segment.
+    private var primaryEvent: PomodoroEvent {
+        switch view.phase {
+        case .focus, .focusEnded: return .startBreak
+        case .idle, .brk, .breakEnded: return .startFocus
+        }
+    }
+
+    private var primaryLabel: String {
+        primaryEvent == .startBreak ? "Start break" : "Start focus"
     }
 
     private var phaseLabel: String {

@@ -127,11 +127,16 @@ break_minutes = 5
 notify = true
 # 时段结束时播放一次提示音
 sound = true
+# 每天早上（北京时间）过了 morning_nudge_after 还没开第一个专注，就闪托盘/菜单栏图标提醒；
+# 当天开过一次专注即停。false = 不做早晨提醒。
+morning_nudge = true
+# 早晨提醒的起始时刻（"HH:MM" 24 小时，北京时间）
+morning_nudge_after = "09:00"
 ```
 
 配置加载规则（两端按同一规格实现）：
 - 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"、pomodoro `enabled=true` 且 25/5/true/true）。
-- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`）返回带字段定位的明确错误，UI 展示为可读提示。
+- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`）返回带字段定位的明确错误，UI 展示为可读提示。
 - `~` 与环境变量需统一展开。
 
 ## 5. 逻辑数据模型（语言无关）
@@ -405,7 +410,7 @@ porcelain v2 计数规则（精确）：
 1. **后台执行**：操作在后台线程/队列跑，不阻塞 UI；执行期间该行的操作按钮禁用，显示进行中文案（`Pulling…` / `Pushing…` / `Fetching…`）。
 2. **仅限允许的操作**：UI 只在 `allowed_actions` 为该状态放行时才发起对应操作。
 3. **操作后重采该行**：操作结束后，立即对该仓库重新执行一次 §7.1/§7.2 采集，用结果刷新该行的状态徽标与计数。
-4. **结果提示**：该行显示一行简短结果——成功用 `GitActionResult.summary`，失败用 `error`（git stderr 首行）。此提示在**下一次整体刷新**（Refresh 按钮 / 定时 / 增删改仓库）时清除；操作后的定向重采不清除它。
+4. **结果提示**：该行显示一行简短结果——成功用 `GitActionResult.summary`（绿），失败用 `error`（红，git stderr 首行）。放在 **name 那一行的行内**（branch 之后、操作按钮之前），过长省略号截断、hover 看全文——不另起一行，避免行高参差。此提示在**下一次整体刷新**（Refresh 按钮 / 定时 / 增删改仓库）时清除；操作后的定向重采不清除它。
 5. **失败降级**：操作失败只影响该行（延续 §2）；`pull --ff-only` / `push` 失败均无本地副作用，用户可据提示自行到终端处理。网络超时后 push 可能已在远端部分完成，此时步骤 3 的重采会显示真实状态。
 6. **与整体刷新的关系**：单行操作不改变 §8.1 的代际 token；正在整体刷新（`refreshing==true`）时，操作按钮一并禁用。
 7. **Fetch 按钮的渲染条件**：仅当 `general.fetch_remote == false` 时渲染 Fetch 按钮（理由见上方显隐表下的说明）。两端在配置变化后（含启动、配置重载）都要同步这个条件。
@@ -454,8 +459,8 @@ porcelain v2 计数规则（精确）：
 
 五个分区，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
 
-1. **Pomodoro**（置顶）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、进度条；按钮 `Start focus` / `Start break` / `Stop`（按 phase 高亮/禁用）。`pomodoro.enabled == false` 时整个分区隐藏。详见 §11。放在最上面是因为它是唯一需要主动操作的分区，其余四个是只读监视。
-2. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在行内显示一行结果（成功/失败），结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
+1. **Pomodoro**（置顶）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、进度条；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时整个分区隐藏。详见 §11。放在最上面是因为它是唯一需要主动操作的分区，其余四个是只读监视。
+2. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在 name 那一行**同行内**显示一行结果（成功绿 / 失败红，过长则省略号截断、hover 看全文），不另占纵向空间以免行高参差；结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
 3. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
 4. **Clocks**：每个配置时区一个时钟，实时更新。
 5. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
@@ -514,7 +519,7 @@ porcelain v2 计数规则（精确）：
 | 层 | 内容 | 性质 | 测试 |
 |----|------|------|------|
 | 纯逻辑 | `pomodoro_view`（状态 → 展示数据）、`pomodoro_reduce`（状态迁移） | 确定性纯函数 | **测试向量**（§10.2 的 `pomodoro/` 与 `pomodoro-transition/`）+ 各端单测 |
-| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音 | 有副作用、各端机制不同 | 无向量；两端对照本节可观察行为走查 |
+| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音、早晨提醒（§11.4 第 8 项） | 有副作用、各端机制不同 | 无向量；两端对照本节可观察行为走查 |
 
 数据模型见 §5.6。番茄钟状态是**内存中唯一的一份 `PomodoroState`**，不写盘，应用重启后回到 `Idle`（ADR-012：符合 ADR-001「无数据库」）。
 
@@ -560,7 +565,7 @@ porcelain v2 计数规则（精确）：
 ### 11.4 UI 层职责（两端各自实现，不进向量）
 
 1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
-2. **面板**（§9 置顶分区）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、进度条、三个按钮（`Idle` 突出 Start focus；`*Ended` 三个都可点）。
+2. **面板**（§9 置顶分区）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、进度条、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。
 3. **托盘 / 菜单栏图标状态机**（由 `phase` / `alerting` 驱动）：
 
    | phase | 图标 |
@@ -569,6 +574,8 @@ porcelain v2 计数规则（精确）：
    | `Focus` / `Break` | 常态图标（Linux：绿/蓝圆点；macOS：`timer` 模板符号），tooltip 显示阶段 |
    | `FocusEnded` | **闪烁**：UI 定时器 ~1.5 Hz 在「红色」与「暗/透明」间切换图标 |
    | `BreakEnded` | **闪烁**：同上，用「橙色」 |
+
+   `Idle` 且早晨提醒生效时（见下方第 8 项）图标改为**琥珀色闪烁**；其余四个 phase 的图标不受早晨提醒影响。
 
    - Linux：StatusNotifierItem，`ksni` crate（独立 D-Bus 线程），提供右键菜单项（开始专注 / 开始休息 / 停止）触发对应事件。图标为代码生成的 ARGB32 色块（v1；后续可换成 ADR-012 的番茄剪影 PNG）。
    - macOS：切换 `NSStatusItem.button.image`（`timer` SF Symbol，`*Ended` 用 `paletteColors` 上红/橙非模板色）；进入 `*Ended` 叠加 `NSApp.requestUserAttention(.criticalRequest)` 让 Dock 图标跳动，确认时 `cancelUserAttentionRequest`。
@@ -583,6 +590,17 @@ porcelain v2 计数规则（精确）：
    - `pomodoro.enabled` 由 `true` 变 `false`：立即对 state 施加 `Stop`（回 `Idle`）、隐藏该分区、注销托盘图标状态；由 `false` 变 `true`：显示分区、注册托盘、state 为 `Idle`。
    - `focus_minutes` / `break_minutes` 变化：仅当 `phase == Idle` 时把新值写回 `state.focus_secs` / `state.break_secs`；非 `Idle` 时不动，等回到 `Idle` 再写（配合 §11.3「时长冻结」——`state` 里冻结的那份才是权威）。
    - `notify` / `sound` 变化：下一次进入 `*Ended` 时按新值执行。
+   - `morning_nudge` / `morning_nudge_after` 变化：下一个 tick 起按新值重算判据（见步骤 8）。
+8. **早晨提醒（morning nudge）**：每天早上没开第一个专注就闪图标提醒用户。**纯 UI 层**——判据读的是北京墙上时钟，不进 `PomodoroState`、不进向量（和时钟每秒刷新同类）。
+   - **判据**（每 1 秒 tick 重算一次）——以下**全部**成立时提醒生效：
+     1. `pomodoro.enabled` 且 `pomodoro.morning_nudge`；
+     2. 当前 `phase == Idle`；
+     3. 当天（北京日历日，`Asia/Shanghai`）还没有 `StartFocus` 事件发生过；
+     4. 北京墙上时刻 ≥ `pomodoro.morning_nudge_after`（`"HH:MM"`，缺省 `09:00`）。
+   - **不分工作日 / 周末**——每天都提醒（作者确认）。
+   - **提醒方式**：托盘 / 菜单栏图标以 `*Ended` 同频（~1.5 Hz）闪烁，颜色为**琥珀色**（`#F5A623`，与 `*Ended` 的红/橙区分开）；窗口标题（Linux）加 `⏰` 前缀。**不发系统通知、不响提示音**——比 `*Ended` 弱一档，只闪图标（用户原始诉求）。macOS 不叠加 Dock 跳动。
+   - **`*Ended` 优先**：真进入 `*Ended` 说明当天已开过时段，判据 3 自然不再成立；万一并存，`*Ended` 的红/橙闪烁压过早晨提醒。
+   - **状态**：只记「最近一次 `StartFocus` 的北京日历日」一份内存值，`StartFocus` 时写入（面板主按钮或托盘菜单皆可触发）。**不持久化**——重启后该值清空，提醒会重新出现（与"番茄钟状态不跨重启"一致，ADR-012）。
 
 ### 11.5 番茄钟非目标（v1，见 ADR-012）
 

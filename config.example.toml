@@ -52,3 +52,9 @@ break_minutes = 5
 notify = true
 # Play a sound once when a session ends.
 sound = true
+# Flash the tray / menu-bar icon each morning (Beijing time) if no focus session
+# has been started yet that day. Stops for the day once the first focus starts.
+# false = no morning nudge.
+morning_nudge = true
+# Beijing wall-clock time-of-day ("HH:MM", 24h) after which the morning nudge starts.
+morning_nudge_after = "09:00"

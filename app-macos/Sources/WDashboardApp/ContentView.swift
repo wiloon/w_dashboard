@@ -10,19 +10,6 @@ struct ContentView: View {
                 Text("w_dashboard")
                     .font(.system(size: 22, weight: .heavy))
                 Spacer()
-                Text("Last updated: \(appState.lastUpdated)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button {
-                    appState.refresh()
-                } label: {
-                    if appState.refreshing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                }
-                .disabled(appState.refreshing)
             }
 
             if let configLoadError = appState.configLoadError {

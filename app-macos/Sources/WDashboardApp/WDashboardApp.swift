@@ -26,6 +26,10 @@ struct WDashboardApp: App {
                     appState.onPomodoroPhaseChange = { phase in
                         appDelegate.statusItemController.setPomodoroPhase(phase)
                     }
+                    // …and from the morning "start your first focus" nudge (§11.4 step 8).
+                    appState.onPomodoroNudgeChange = { nudging in
+                        appDelegate.statusItemController.setPomodoroNudge(nudging)
+                    }
                 }
         }
     }

@@ -60,16 +60,25 @@ public struct PomodoroConfig: Equatable, Sendable {
     public var breakMinutes: Int
     public var notify: Bool
     public var sound: Bool
+    /// Flash the menu-bar icon each morning if no focus session has been started
+    /// yet that day (docs/sdd.md §11.4 step 8, ADR-012).
+    public var morningNudge: Bool
+    /// Beijing wall-clock time-of-day, as minutes since midnight, after which the
+    /// morning nudge kicks in (`morning_nudge_after` `"HH:MM"` in the file).
+    public var morningNudgeAfterMinutes: Int
 
     public init(
         enabled: Bool = true, focusMinutes: Int = 25, breakMinutes: Int = 5,
-        notify: Bool = true, sound: Bool = true
+        notify: Bool = true, sound: Bool = true,
+        morningNudge: Bool = true, morningNudgeAfterMinutes: Int = 9 * 60
     ) {
         self.enabled = enabled
         self.focusMinutes = focusMinutes
         self.breakMinutes = breakMinutes
         self.notify = notify
         self.sound = sound
+        self.morningNudge = morningNudge
+        self.morningNudgeAfterMinutes = morningNudgeAfterMinutes
     }
 }
 
@@ -303,12 +312,25 @@ private func parsePomodoro(_ raw: [String: TOMLValue]?) throws -> PomodoroConfig
         return n
     }
 
+    func hhmm(_ field: String, _ fallback: Int) throws -> Int {
+        guard let s = raw[field]?.stringValue else { return fallback }
+        let parts = s.split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
+            (0..<24).contains(h), (0..<60).contains(m)
+        {
+            return h * 60 + m
+        }
+        throw ConfigError.parse("pomodoro.\(field): must be a \"HH:MM\" 24-hour time, got \"\(s)\"")
+    }
+
     return PomodoroConfig(
         enabled: raw["enabled"]?.boolValue ?? defaults.enabled,
         focusMinutes: try minutes("focus_minutes", defaults.focusMinutes),
         breakMinutes: try minutes("break_minutes", defaults.breakMinutes),
         notify: raw["notify"]?.boolValue ?? defaults.notify,
-        sound: raw["sound"]?.boolValue ?? defaults.sound
+        sound: raw["sound"]?.boolValue ?? defaults.sound,
+        morningNudge: raw["morning_nudge"]?.boolValue ?? defaults.morningNudge,
+        morningNudgeAfterMinutes: try hhmm("morning_nudge_after", defaults.morningNudgeAfterMinutes)
     )
 }
 

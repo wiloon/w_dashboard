@@ -39,8 +39,21 @@ struct RepoListView: View {
             HStack {
                 Text("Repos").font(.headline)
                 Spacer()
+                Text("Last updated: \(appState.lastUpdated)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Button("Manage…") { showManageRepos = true }
                     .buttonStyle(.borderless)
+                Button {
+                    appState.refresh()
+                } label: {
+                    if appState.refreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
+                .disabled(appState.refreshing)
             }
             if appState.repoStatuses.isEmpty {
                 Text("No repos configured").foregroundStyle(.secondary).font(.subheadline)
@@ -79,7 +92,20 @@ private struct RepoRowView: View {
             HStack(spacing: 6) {
                 Text(repo.name).bold()
                 Text(repo.branch ?? "detached").foregroundStyle(.secondary).font(.subheadline)
-                Spacer()
+                // Last action result (Pull/Push/Fetch), inline on the name row so
+                // it doesn't add a line and skew the row heights (SDD §9). Cleared
+                // by the next full refresh. Elides; full text on hover.
+                if let result = appState.repoActionResults[repo.path] {
+                    let text = result.ok ? result.summary : (result.error ?? "action failed")
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(result.ok ? .green : .red)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(-1)
+                        .help(text)
+                }
+                Spacer(minLength: 8)
                 if !pending && (repo.error?.isEmpty ?? true) {
                     actionButtons
                 }
@@ -111,11 +137,6 @@ private struct RepoRowView: View {
                     .controlSize(.small)
                     .help("Refresh this repo")
                 }
-            }
-            if let result = appState.repoActionResults[repo.path] {
-                Text(result.ok ? result.summary : (result.error ?? "action failed"))
-                    .font(.caption)
-                    .foregroundStyle(result.ok ? .green : .red)
             }
             if expanded {
                 Text(

@@ -40,6 +40,7 @@ mod stub {
 
     impl PomodoroTray {
         pub fn set_phase(&self, _phase: PomodoroPhase) {}
+        pub fn set_nudging(&self, _nudging: bool) {}
     }
 }
 
@@ -57,6 +58,9 @@ mod imp {
     /// Flash half-period.
     const FLASH_INTERVAL: Duration = Duration::from_millis(650);
     const ICON_SIZE: i32 = 32;
+    /// Amber — the morning "start your first focus" nudge (docs/sdd.md §11.4 step 8).
+    /// Distinct from the `*Ended` red/orange so the two reasons to flash read apart.
+    const NUDGE_RGB: (u8, u8, u8) = (0xf5, 0xa6, 0x23);
 
     fn phase_rgb(phase: PomodoroPhase) -> (u8, u8, u8) {
         match phase {
@@ -85,7 +89,11 @@ mod imp {
     /// A filled disc in the phase colour. `dim` fades it for the dark half of the
     /// alert flash. ARGB32, network byte order, as the SNI spec wants.
     fn disc_icon(phase: PomodoroPhase, dim: bool) -> ksni::Icon {
-        let (r, g, b) = phase_rgb(phase);
+        disc_icon_rgb(phase_rgb(phase), dim)
+    }
+
+    /// A filled disc in an explicit colour (used for the amber morning nudge).
+    fn disc_icon_rgb((r, g, b): (u8, u8, u8), dim: bool) -> ksni::Icon {
         let alpha: u8 = if dim { 55 } else { 255 };
         let mut data = vec![0u8; (ICON_SIZE * ICON_SIZE * 4) as usize];
         let center = (ICON_SIZE as f32 - 1.0) / 2.0;
@@ -112,9 +120,27 @@ mod imp {
 
     struct Tray {
         phase: PomodoroPhase,
-        /// Toggled by the flash thread; only affects rendering while alerting.
+        /// Morning "start your first focus" nudge (docs/sdd.md §11.4 step 8).
+        /// Flashes amber while `phase == Idle`; the `*Ended` alert outranks it.
+        nudging: bool,
+        /// Toggled by the flash thread; only affects rendering while alerting or nudging.
         flash_bright: bool,
         tx: Sender<PomodoroEvent>,
+    }
+
+    impl Tray {
+        /// The amber morning nudge shows only while idle and not alerting.
+        fn showing_nudge(&self) -> bool {
+            self.nudging && !is_alerting(self.phase)
+        }
+
+        fn tray_title(&self) -> &'static str {
+            if self.showing_nudge() {
+                "Pomodoro: start your first focus"
+            } else {
+                phase_title(self.phase)
+            }
+        }
     }
 
     impl ksni::Tray for Tray {
@@ -123,17 +149,20 @@ mod imp {
         }
 
         fn title(&self) -> String {
-            phase_title(self.phase).into()
+            self.tray_title().into()
         }
 
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+            if self.showing_nudge() {
+                return vec![disc_icon_rgb(NUDGE_RGB, !self.flash_bright)];
+            }
             let dim = is_alerting(self.phase) && !self.flash_bright;
             vec![disc_icon(self.phase, dim)]
         }
 
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
-                title: phase_title(self.phase).into(),
+                title: self.tray_title().into(),
                 description: String::new(),
                 icon_name: String::new(),
                 icon_pixmap: Vec::new(),
@@ -176,6 +205,7 @@ mod imp {
     pub struct PomodoroTray {
         handle: Handle<Tray>,
         phase: Arc<Mutex<PomodoroPhase>>,
+        nudging: Arc<Mutex<bool>>,
     }
 
     impl PomodoroTray {
@@ -184,6 +214,16 @@ mod imp {
             *self.phase.lock().unwrap() = phase;
             self.handle.update(move |t: &mut Tray| {
                 t.phase = phase;
+                t.flash_bright = true;
+            });
+        }
+
+        /// Called from the UI thread when the morning nudge turns on or off
+        /// (docs/sdd.md §11.4 step 8).
+        pub fn set_nudging(&self, nudging: bool) {
+            *self.nudging.lock().unwrap() = nudging;
+            self.handle.update(move |t: &mut Tray| {
+                t.nudging = nudging;
                 t.flash_bright = true;
             });
         }
@@ -198,26 +238,35 @@ mod imp {
     pub fn spawn(tx: Sender<PomodoroEvent>) -> Option<PomodoroTray> {
         let tray = Tray {
             phase: PomodoroPhase::Idle,
+            nudging: false,
             flash_bright: true,
             tx,
         };
         let handle = tray.spawn().ok()?;
 
         let phase = Arc::new(Mutex::new(PomodoroPhase::Idle));
+        let nudging = Arc::new(Mutex::new(false));
         {
             let handle = handle.clone();
             let phase = phase.clone();
+            let nudging = nudging.clone();
             thread::spawn(move || loop {
                 thread::sleep(FLASH_INTERVAL);
                 if handle.is_closed() {
                     return;
                 }
-                if is_alerting(*phase.lock().unwrap()) {
+                let flashing =
+                    is_alerting(*phase.lock().unwrap()) || *nudging.lock().unwrap();
+                if flashing {
                     handle.update(|t: &mut Tray| t.flash_bright = !t.flash_bright);
                 }
             });
         }
 
-        Some(PomodoroTray { handle, phase })
+        Some(PomodoroTray {
+            handle,
+            phase,
+            nudging,
+        })
     }
 }

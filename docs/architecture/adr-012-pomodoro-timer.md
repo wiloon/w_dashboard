@@ -34,6 +34,7 @@ Accepted（在 ADR-001「只展示本机状态」之外，新增一类**常驻�
 - **专注结束比休息结束更强**：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，**不响提示音**（用户原始诉求只提到"工作时段结束"）。
 - **自动收工**：`*Ended` 持续超时满 30 分钟仍无人确认 → 视为人已离开，`pomodoro_reduce` 自己把 phase 收回 `Idle`（避免关机一夜后开机看到无意义的常闪）。
 - **不跨重启保留状态**：番茄钟状态只存内存，重启回到空闲。当日完成数也不持久化。
+- **早晨提醒（morning nudge）**：每天早上（北京时间，缺省 09:00 后）还没开第一个专注就闪图标——弥补"番茄钟要手动开、容易忘"。只闪图标（比 `*Ended` 弱一档），当天开过就停，起始时刻可配。详见「UI 层职责」第 8 项、SDD §11.4。
 
 **约束（不变）**：
 
@@ -163,10 +164,13 @@ break_minutes = 5
 notify = true
 # 时段结束时播放一次提示音
 sound = true
+# 每天早上（北京时间）过了 morning_nudge_after 还没开第一个专注就闪图标提醒
+morning_nudge = true
+morning_nudge_after = "09:00"
 ```
 
 - `enabled = false`：面板隐藏，不注册托盘图标状态（托盘只保留现有"点击唤起窗口"行为）。
-- 字段缺失走默认值（25 / 5 / true / true）；非法值（如 `focus_minutes <= 0`）返回带字段定位的可读错误，按 SDD §4 既有规则处理。
+- 字段缺失走默认值（25 / 5 / true / true / true / `09:00`）；非法值（如 `focus_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`）返回带字段定位的可读错误，按 SDD §4 既有规则处理。
 
 ### UI 层职责（两端各自实现，**不进向量**）
 
@@ -175,7 +179,7 @@ sound = true
    - 当前 phase 标签（Idle / Focus / Break / Focus done / Break done）——面板置于窗口最上面，因为它是唯一需要主动操作的分区
    - 剩余时间 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）
    - 进度条（`*Ended` 满格并变色）
-   - 按钮：`开始专注` `开始休息` `停止`——按 phase 高亮/禁用（`Idle` 突出"开始专注"；`*Ended` 三个都可点，点任意一个即"确认"）
+   - 按钮：一个**主切换按钮**（即上文的「Next」）+ `停止`。主按钮文案/事件随 phase 走——`Focus`/`FocusEnded` → `Start break`，其余 → `Start focus`——一路点下去就是 Focus→Break→Focus… 的循环；`*Ended` 时点主按钮或 `停止` 都算"确认"。`停止` 在 `Idle` 时禁用。
 3. **托盘 / 菜单栏图标状态机**（`alerting` 与 `phase` 驱动）：
 
    | phase | 图标 |
@@ -193,6 +197,7 @@ sound = true
 5. **确认（用户点任意「开始…」/「停止」，或规则 6 自动收工）**：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`。
 6. **无 SNI host 兜底（Linux）**：检测不到 StatusNotifierWatcher 时，`*Ended` 态改为——面板内大号高亮横幅 + 窗口标题加前缀 `⏰`。
 7. **配置加载**：v1 无配置热重载——`[pomodoro]` 启动时读一次，改设置需重启（重启本就回 `Idle`）。将来加热重载时的规则见 SDD §11.4 步骤 7。
+8. **早晨提醒（morning nudge）**：每天早上（北京时间）过了 `morning_nudge_after` 还停在 `Idle` 且当天没开过专注 → 托盘/菜单栏图标以 `*Ended` 同频闪**琥珀色**、窗口标题加 `⏰`。**只闪图标**，不发通知、不响声音、macOS 不跳 Dock——比 `*Ended` 弱一档（用户诉求只提到"让图标闪"）。当天一旦 `StartFocus` 即停，到次日北京零点重新武装。判据读北京墙上时钟，纯 UI 层、不进向量（同时钟刷新）。「当天开过专注」只记内存、不持久化——重启会重新提醒。精确判据见 SDD §11.4 步骤 8。
 
 ### 明确不做（v1）
 

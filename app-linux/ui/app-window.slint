@@ -117,6 +117,11 @@ export component AppWindow inherits Window {
     in-out property <bool> pomodoro_running: false;
     in-out property <bool> pomodoro_alerting: false;
     in-out property <color> pomodoro_bar_color: #b0b6bd;
+    // The single toggle button (ADR-012 「Next」): label + event for the *next*
+    // click, both derived from the phase on the Rust side. Focus/FocusEnded ->
+    // "start_break"; every other phase -> "start_focus".
+    in-out property <string> pomodoro_primary_label: "Start focus";
+    in-out property <string> pomodoro_primary_event: "start_focus";
 
     callback refresh();
     callback add_repo(string, string);
@@ -202,12 +207,9 @@ export component AppWindow inherits Window {
                                 padding: 0px;
                                 spacing: 8px;
                                 Button {
-                                    text: "Start focus";
-                                    clicked => { pomodoro_event("start_focus"); }
-                                }
-                                Button {
-                                    text: "Start break";
-                                    clicked => { pomodoro_event("start_break"); }
+                                    text: pomodoro_primary_label;
+                                    primary: true;
+                                    clicked => { pomodoro_event(pomodoro_primary_event); }
                                 }
                                 Button {
                                     text: "Stop";
@@ -368,7 +370,18 @@ export component AppWindow inherits Window {
                                         vertical-alignment: center;
                                     }
                                 }
-                                Rectangle { horizontal-stretch: 1; }
+                                // Last action result (Pull/Push/Fetch), inline on the
+                                // name row so it doesn't add a line and skew row heights
+                                // (SDD §9). Cleared by the next full refresh; elides.
+                                if repo.action_note != "": Text {
+                                    text: repo.action_note;
+                                    color: repo.action_ok ? ok-color : error-color;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                if repo.action_note == "": Rectangle { horizontal-stretch: 1; }
                                 HorizontalBox {
                                     padding: 0px;
                                     spacing: 8px;
@@ -439,12 +452,6 @@ export component AppWindow inherits Window {
                                     + " · untracked " + repo.untracked + " · conflicted " + repo.conflicted;
                                 font-size: 12px;
                                 color: text-tertiary;
-                            }
-                            if repo.action_note != "": Text {
-                                text: repo.action_note;
-                                color: repo.action_ok ? ok-color : error-color;
-                                font-size: 12px;
-                                wrap: word-wrap;
                             }
                         }
                     }

@@ -51,6 +51,12 @@ final class AppState: ObservableObject {
         PomodoroView(phase: .idle, remainingSecs: 0, elapsedSecs: 0, overtimeSecs: 0, progress: 0, alerting: false)
     private var pomodoroState: PomodoroState = .idle(focusSecs: 1500, breakSecs: 300)
     private var pomodoroTickTask: Task<Void, Never>?
+    /// Beijing calendar day (`yyyy-MM-dd`) of the most recent `.startFocus`; drives
+    /// the morning nudge (docs/sdd.md §11.4 step 8). Not persisted — a restart
+    /// re-arms the nudge.
+    private var firstFocusBeijingDay: String?
+    /// Last morning-nudge value handed to the menu-bar icon; only re-sent on a change.
+    private var lastMorningNudge = false
 
     let configPath: String
 
@@ -104,6 +110,10 @@ final class AppState: ObservableObject {
     /// (docs/sdd.md §11.4 step 3). Set by the App layer.
     var onPomodoroPhaseChange: ((PomodoroPhase) -> Void)?
 
+    /// Notified when the morning nudge turns on or off (docs/sdd.md §11.4 step 8).
+    /// Set by the App layer; drives the menu-bar icon flash.
+    var onPomodoroNudgeChange: ((Bool) -> Void)?
+
     /// Apply one pomodoro event (panel button or, later, a menu item): reduce,
     /// recompute the view, and notify the icon.
     func pomodoroEvent(_ event: PomodoroEvent) {
@@ -123,22 +133,65 @@ final class AppState: ObservableObject {
     }
 
     private func applyPomodoro(event: PomodoroEvent, now: Int64) {
+        let wallClock = Date(timeIntervalSince1970: TimeInterval(now))
+        if event == .startFocus {
+            // Today's first focus has happened — silences the morning nudge for
+            // the rest of this Beijing calendar day (docs/sdd.md §11.4 step 8).
+            firstFocusBeijingDay = Self.beijingDayFormatter.string(from: wallClock)
+        }
+
         let previousPhase = pomodoroState.phase
         pomodoroState = pomodoroReduce(pomodoroState, event, now: now)
         pomodoro = pomodoroView(pomodoroState, now: now)
 
         let newPhase = pomodoroState.phase
-        guard newPhase != previousPhase else { return }
+        if newPhase != previousPhase {
+            onPomodoroPhaseChange?(newPhase)
 
-        onPomodoroPhaseChange?(newPhase)
+            if newPhase == .focusEnded || newPhase == .breakEnded {
+                Self.fireAlert(
+                    phase: newPhase,
+                    notify: config.pomodoro.notify,
+                    sound: config.pomodoro.sound)
+            }
+        }
 
-        if newPhase == .focusEnded || newPhase == .breakEnded {
-            Self.fireAlert(
-                phase: newPhase,
-                notify: config.pomodoro.notify,
-                sound: config.pomodoro.sound)
+        let nudge = morningNudgeActive(phase: newPhase, now: wallClock)
+        if nudge != lastMorningNudge {
+            lastMorningNudge = nudge
+            onPomodoroNudgeChange?(nudge)
         }
     }
+
+    /// Whether to flash the menu-bar icon as a "you haven't started your first
+    /// focus yet" nudge (docs/sdd.md §11.4 step 8). App-layer only — it reads the
+    /// Beijing wall clock, never `PomodoroState`. True when: enabled, still
+    /// `.idle`, at/after `morning_nudge_after` Beijing time, and no focus has been
+    /// started yet today (Beijing date).
+    private func morningNudgeActive(phase: PomodoroPhase, now: Date) -> Bool {
+        guard config.pomodoro.enabled, config.pomodoro.morningNudge, phase == .idle else {
+            return false
+        }
+        let cal = Self.beijingCalendar
+        if firstFocusBeijingDay == Self.beijingDayFormatter.string(from: now) { return false }
+        let comps = cal.dateComponents([.hour, .minute], from: now)
+        let minutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+        return minutes >= config.pomodoro.morningNudgeAfterMinutes
+    }
+
+    private static let beijingCalendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        return c
+    }()
+
+    private static let beijingDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
 
     /// Phase-edge side effects (docs/sdd.md §11.4 step 4): one notification, plus
     /// a sound only on `focusEnded`. Best-effort — failures are ignored (SDD §2).

@@ -56,6 +56,12 @@ pub struct PomodoroConfig {
     pub break_minutes: u32,
     pub notify: bool,
     pub sound: bool,
+    /// Flash the tray/menu-bar icon each morning if no focus session has been
+    /// started yet that day (docs/sdd.md §11.4 step 8, ADR-012).
+    pub morning_nudge: bool,
+    /// Beijing wall-clock time-of-day, as minutes since midnight, after which the
+    /// morning nudge kicks in (`morning_nudge_after` `"HH:MM"` in the file).
+    pub morning_nudge_after_minutes: u16,
 }
 
 impl Default for PomodoroConfig {
@@ -66,6 +72,8 @@ impl Default for PomodoroConfig {
             break_minutes: 5,
             notify: true,
             sound: true,
+            morning_nudge: true,
+            morning_nudge_after_minutes: 9 * 60,
         }
     }
 }
@@ -143,6 +151,8 @@ struct PomodoroConfigRaw {
     break_minutes: Option<i64>,
     notify: Option<bool>,
     sound: Option<bool>,
+    morning_nudge: Option<bool>,
+    morning_nudge_after: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -346,6 +356,27 @@ fn parse_pomodoro(raw: Option<PomodoroConfigRaw>) -> Result<PomodoroConfig, Conf
         break_minutes: minutes("break_minutes", raw.break_minutes, default.break_minutes)?,
         notify: raw.notify.unwrap_or(default.notify),
         sound: raw.sound.unwrap_or(default.sound),
+        morning_nudge: raw.morning_nudge.unwrap_or(default.morning_nudge),
+        morning_nudge_after_minutes: parse_hhmm(
+            "morning_nudge_after",
+            raw.morning_nudge_after.as_deref(),
+            default.morning_nudge_after_minutes,
+        )?,
+    })
+}
+
+/// Parse a `"HH:MM"` 24-hour time-of-day into minutes since midnight.
+fn parse_hhmm(field: &str, value: Option<&str>, fallback: u16) -> Result<u16, ConfigError> {
+    let Some(raw) = value else { return Ok(fallback) };
+    let parsed = raw.split_once(':').and_then(|(h, m)| {
+        let h: u16 = h.parse().ok()?;
+        let m: u16 = m.parse().ok()?;
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    });
+    parsed.ok_or_else(|| {
+        ConfigError::Parse(format!(
+            "pomodoro.{field}: must be a \"HH:MM\" 24-hour time, got {raw:?}"
+        ))
     })
 }
 

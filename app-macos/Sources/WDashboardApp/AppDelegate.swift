@@ -21,6 +21,9 @@ final class StatusItemController: NSObject {
     var onSelect: (() -> Void)?
 
     private var phase: PomodoroPhase = .idle
+    /// Morning "start your first focus" nudge (docs/sdd.md §11.4 step 8). Flashes
+    /// the item amber while idle; the `*Ended` alert outranks it.
+    private var nudging = false
     private var flashOn = true
     private var flashTimer: Timer?
     private var attentionRequest: Int?
@@ -58,15 +61,37 @@ final class StatusItemController: NSObject {
     /// Called from the UI whenever the pomodoro phase changes (docs/sdd.md §11.4).
     func setPomodoroPhase(_ phase: PomodoroPhase) {
         self.phase = phase
-        flashOn = true
-        flashTimer?.invalidate()
-        flashTimer = nil
+        updateFlashing()
+    }
 
-        if phase == .focusEnded || phase == .breakEnded {
-            flashTimer = Timer.scheduledTimer(withTimeInterval: 0.65, repeats: true) { [weak self] _ in
-                self?.flashOn.toggle()
-                self?.render()
+    /// Called from the UI when the morning nudge turns on or off (docs/sdd.md §11.4 step 8).
+    func setPomodoroNudge(_ on: Bool) {
+        nudging = on
+        updateFlashing()
+    }
+
+    /// (Re)start or stop the flash timer and Dock bounce for whichever reason the
+    /// item should be drawing attention: the `*Ended` alert, or the morning nudge.
+    private func updateFlashing() {
+        let alerting = phase == .focusEnded || phase == .breakEnded
+        let shouldFlash = alerting || (nudging && phase == .idle)
+
+        flashOn = true
+        if shouldFlash {
+            if flashTimer == nil {
+                flashTimer = Timer.scheduledTimer(withTimeInterval: 0.65, repeats: true) { [weak self] _ in
+                    self?.flashOn.toggle()
+                    self?.render()
+                }
             }
+        } else {
+            flashTimer?.invalidate()
+            flashTimer = nil
+        }
+
+        // The Dock bounce is reserved for the `*Ended` alert — the morning nudge
+        // is the gentler of the two and only flashes the menu-bar item.
+        if alerting {
             if attentionRequest == nil {
                 attentionRequest = NSApp.requestUserAttention(.criticalRequest)
             }
@@ -83,7 +108,7 @@ final class StatusItemController: NSObject {
         clockLabel = Self.beijingClockFormatter.string(from: Date())
         button.title = ""
         button.attributedTitle = NSAttributedString(string: "")
-        let image = Self.statusImage(phase: phase, time: clockLabel, flashOn: flashOn)
+        let image = Self.statusImage(phase: phase, time: clockLabel, flashOn: flashOn, nudging: nudging)
         button.image = image
         button.imagePosition = .imageOnly
     }
@@ -93,11 +118,21 @@ final class StatusItemController: NSObject {
     /// the menu bar and inverts it as a unit when the menu opens). In the `*Ended`
     /// alert the whole thing — glyph and time together — flashes red (focus) or
     /// orange (break) until acknowledged.
-    private static func statusImage(phase: PomodoroPhase, time: String, flashOn: Bool) -> NSImage {
+    private static func statusImage(phase: PomodoroPhase, time: String, flashOn: Bool, nudging: Bool)
+        -> NSImage
+    {
         let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        let symbolName = phase == .idle ? "square.grid.2x2" : "timer"
         let alerting = phase == .focusEnded || phase == .breakEnded
-        let alertColor: NSColor = phase == .focusEnded ? .systemRed : .systemOrange
+        // The amber morning nudge shows only while idle and not alerting.
+        let nudge = nudging && phase == .idle && !alerting
+        let symbolName = (phase == .idle && !nudge) ? "square.grid.2x2" : "timer"
+        // Everything past `alerting` also covers the nudge: a non-template image
+        // tinted and flashed as one unit.
+        let paintTint = alerting || nudge
+        let tintColor: NSColor =
+            alerting
+            ? (phase == .focusEnded ? .systemRed : .systemOrange)
+            : NSColor(calibratedRed: 0.96, green: 0.65, blue: 0.14, alpha: 1)  // amber
 
         let glyph = NSImage(systemSymbolName: symbolName, accessibilityDescription: "w_dashboard")!
             .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular, scale: .small))!
@@ -119,14 +154,14 @@ final class StatusItemController: NSObject {
             (time as NSString).draw(
                 at: NSPoint(x: glyph.size.width + gap, y: ((rect.height - textSize.height) / 2).rounded()),
                 withAttributes: attrs)
-            if alerting {
+            if paintTint {
                 // Tint glyph + digits as one; the dim half-beat is the flash.
-                (flashOn ? alertColor : alertColor.withAlphaComponent(0.25)).set()
+                (flashOn ? tintColor : tintColor.withAlphaComponent(0.25)).set()
                 rect.fill(using: .sourceAtop)
             }
             return true
         }
-        image.isTemplate = !alerting
+        image.isTemplate = !paintTint
         return image
     }
 
