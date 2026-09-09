@@ -18,7 +18,11 @@ ureq = "3.3.0"
 # StatusNotifierItem tray for the pomodoro icon (SDD §11.4). Linux-only: pure
 # Rust (zbus), no system libdbus. On macOS/Windows the tray module is a stub.
 [target.'cfg(target_os = "linux")'.dependencies]
-ksni = { version = "0.3.6", features = ["blocking"] }
+ksni = { version = "0.3.6", default-features = false, features = ["blocking"] }
+# Small session-bus service so the optional KDE Plasma widget (see
+# app-linux/plasmoid/) can poll the pomodoro state and send commands — the SNI
+# tray's square icon can't show wide text like macOS's menu bar item.
+zbus = "5.18"
 
 [build-dependencies]
 slint-build = "1.17.1"

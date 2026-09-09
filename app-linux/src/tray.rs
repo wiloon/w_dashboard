@@ -18,16 +18,19 @@ pub use imp::PomodoroTray;
 #[cfg(not(target_os = "linux"))]
 pub use stub::PomodoroTray;
 
-/// Spawn the tray. `Some` once the StatusNotifierItem is registered; `None` when
-/// there is no tray host (SDD §11.4 step 6 — the caller then shows the in-window
-/// fallback) or on non-Linux platforms.
+/// Spawn the tray. `Some` once set up — either the StatusNotifierItem is
+/// registered, or `show_icon` is `false` and only the pomodoro D-Bus service
+/// (for the optional KDE Plasma widget, see `app-linux/plasmoid/`) was
+/// started. `None` when `show_icon` is `true` but there is no tray host (SDD
+/// §11.4 step 6 — the caller then shows the in-window fallback), or on
+/// non-Linux platforms.
 #[cfg(target_os = "linux")]
-pub fn spawn_pomodoro_tray(tx: Sender<PomodoroEvent>) -> Option<PomodoroTray> {
-    imp::spawn(tx)
+pub fn spawn_pomodoro_tray(tx: Sender<PomodoroEvent>, show_icon: bool) -> Option<PomodoroTray> {
+    imp::spawn(tx, show_icon)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn spawn_pomodoro_tray(_tx: Sender<PomodoroEvent>) -> Option<PomodoroTray> {
+pub fn spawn_pomodoro_tray(_tx: Sender<PomodoroEvent>, _show_icon: bool) -> Option<PomodoroTray> {
     None
 }
 
@@ -84,6 +87,18 @@ mod imp {
 
     fn is_alerting(phase: PomodoroPhase) -> bool {
         matches!(phase, PomodoroPhase::FocusEnded | PomodoroPhase::BreakEnded)
+    }
+
+    /// Short id used on the D-Bus `GetState` reply (see `dbus_service`) and
+    /// matched against in the Plasma widget's QML (`plasmoid/…/main.qml`).
+    fn phase_id(phase: PomodoroPhase) -> &'static str {
+        match phase {
+            PomodoroPhase::Idle => "idle",
+            PomodoroPhase::Focus => "focus",
+            PomodoroPhase::Break => "break",
+            PomodoroPhase::FocusEnded => "focus_ended",
+            PomodoroPhase::BreakEnded => "break_ended",
+        }
     }
 
     /// A filled disc in the phase colour. `dim` fades it for the dark half of the
@@ -200,10 +215,13 @@ mod imp {
         }
     }
 
-    /// Owns the tray handle and the flash thread. Dropping it shuts the tray
-    /// down and lets the flash thread exit.
+    /// Owns the tray handle (when `show_icon` was `true`) and its flash
+    /// thread. Dropping it shuts the tray down and lets the flash thread
+    /// exit; the D-Bus service (see `dbus_service`) outlives it — it has no
+    /// handle to shut down, and is meant to keep running for the process's
+    /// lifetime regardless of this icon.
     pub struct PomodoroTray {
-        handle: Handle<Tray>,
+        handle: Option<Handle<Tray>>,
         phase: Arc<Mutex<PomodoroPhase>>,
         nudging: Arc<Mutex<bool>>,
     }
@@ -212,30 +230,52 @@ mod imp {
         /// Called from the UI thread on every state change.
         pub fn set_phase(&self, phase: PomodoroPhase) {
             *self.phase.lock().unwrap() = phase;
-            self.handle.update(move |t: &mut Tray| {
-                t.phase = phase;
-                t.flash_bright = true;
-            });
+            if let Some(handle) = &self.handle {
+                handle.update(move |t: &mut Tray| {
+                    t.phase = phase;
+                    t.flash_bright = true;
+                });
+            }
         }
 
         /// Called from the UI thread when the morning nudge turns on or off
         /// (docs/sdd.md §11.4 step 8).
         pub fn set_nudging(&self, nudging: bool) {
             *self.nudging.lock().unwrap() = nudging;
-            self.handle.update(move |t: &mut Tray| {
-                t.nudging = nudging;
-                t.flash_bright = true;
-            });
+            if let Some(handle) = &self.handle {
+                handle.update(move |t: &mut Tray| {
+                    t.nudging = nudging;
+                    t.flash_bright = true;
+                });
+            }
         }
     }
 
     impl Drop for PomodoroTray {
         fn drop(&mut self) {
-            self.handle.shutdown();
+            if let Some(handle) = &self.handle {
+                handle.shutdown();
+            }
         }
     }
 
-    pub fn spawn(tx: Sender<PomodoroEvent>) -> Option<PomodoroTray> {
+    /// `show_icon = false` skips registering the StatusNotifierItem
+    /// entirely (`[pomodoro] tray_icon = false`) — only the D-Bus service
+    /// starts, for setups using the KDE Plasma widget instead
+    /// (`app-linux/plasmoid/README.md`).
+    pub fn spawn(tx: Sender<PomodoroEvent>, show_icon: bool) -> Option<PomodoroTray> {
+        let phase = Arc::new(Mutex::new(PomodoroPhase::Idle));
+        let nudging = Arc::new(Mutex::new(false));
+        dbus_service::spawn(phase.clone(), nudging.clone(), tx.clone());
+
+        if !show_icon {
+            return Some(PomodoroTray {
+                handle: None,
+                phase,
+                nudging,
+            });
+        }
+
         let tray = Tray {
             phase: PomodoroPhase::Idle,
             nudging: false,
@@ -243,9 +283,6 @@ mod imp {
             tx,
         };
         let handle = tray.spawn().ok()?;
-
-        let phase = Arc::new(Mutex::new(PomodoroPhase::Idle));
-        let nudging = Arc::new(Mutex::new(false));
         {
             let handle = handle.clone();
             let phase = phase.clone();
@@ -264,9 +301,126 @@ mod imp {
         }
 
         Some(PomodoroTray {
-            handle,
+            handle: Some(handle),
             phase,
             nudging,
         })
+    }
+
+    /// A small session-bus service mirroring the pomodoro state, so the
+    /// optional KDE Plasma widget (`app-linux/plasmoid/`) can show it with
+    /// arbitrary-width text — something the SNI tray's fixed square icon
+    /// can't do. Polled by the widget's QML over `busctl` (see its README);
+    /// purely additive, the SNI tray above is unaffected either way.
+    mod dbus_service {
+        use std::sync::mpsc::Sender;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+        use std::time::Duration;
+
+        use zbus::blocking::connection::Builder;
+        use zbus::interface;
+
+        use w_dashboard_linux::pomodoro::{PomodoroEvent, PomodoroPhase};
+
+        use super::phase_id;
+
+        pub const BUS_NAME: &str = "dev.wdashboard.Pomodoro";
+        pub const OBJECT_PATH: &str = "/dev/wdashboard/Pomodoro";
+        // Interface name is "dev.wdashboard.Pomodoro1" — set via the
+        // `#[interface(name = "…")]` attribute below (must be a literal).
+
+        struct PomodoroDbus {
+            phase: Arc<Mutex<PomodoroPhase>>,
+            nudging: Arc<Mutex<bool>>,
+            tx: Sender<PomodoroEvent>,
+        }
+
+        #[interface(name = "dev.wdashboard.Pomodoro1")]
+        impl PomodoroDbus {
+            /// `(phase_id, nudging)` — see `phase_id` for the id strings.
+            fn get_state(&self) -> (String, bool) {
+                let phase = *self.phase.lock().unwrap();
+                let nudging = *self.nudging.lock().unwrap();
+                (phase_id(phase).into(), nudging)
+            }
+
+            fn start_focus(&self) {
+                let _ = self.tx.send(PomodoroEvent::StartFocus);
+            }
+
+            fn start_break(&self) {
+                let _ = self.tx.send(PomodoroEvent::StartBreak);
+            }
+
+            fn stop(&self) {
+                let _ = self.tx.send(PomodoroEvent::Stop);
+            }
+        }
+
+        /// How long to wait before retrying after a failed bind (e.g. losing
+        /// a startup race for `BUS_NAME` against another instance that's
+        /// since exited).
+        const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+        /// How often to confirm we still own `BUS_NAME`, so a lost
+        /// connection (bus restart, name stolen) gets rebuilt instead of
+        /// leaving the Plasma widget polling a name nobody answers on.
+        const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+
+        /// Spawn the service on its own thread, retrying indefinitely on
+        /// failure or if the bus name is ever lost — otherwise a transient
+        /// startup race (or a bus restart) would silently strand the Plasma
+        /// widget polling a name nobody answers on. The SNI tray is
+        /// unaffected either way.
+        pub fn spawn(
+            phase: Arc<Mutex<PomodoroPhase>>,
+            nudging: Arc<Mutex<bool>>,
+            tx: Sender<PomodoroEvent>,
+        ) {
+            thread::spawn(move || loop {
+                let iface = PomodoroDbus {
+                    phase: phase.clone(),
+                    nudging: nudging.clone(),
+                    tx: tx.clone(),
+                };
+                let conn = Builder::session()
+                    .and_then(|b| b.name(BUS_NAME))
+                    .and_then(|b| b.serve_at(OBJECT_PATH, iface))
+                    .and_then(|b| b.build());
+                let conn = match conn {
+                    Ok(conn) => conn,
+                    Err(err) => {
+                        eprintln!(
+                            "w_dashboard: pomodoro D-Bus service failed ({err}); retrying in {}s",
+                            RETRY_INTERVAL.as_secs()
+                        );
+                        thread::sleep(RETRY_INTERVAL);
+                        continue;
+                    }
+                };
+
+                // Hold the connection as long as we still own BUS_NAME.
+                loop {
+                    thread::sleep(HEALTH_CHECK_INTERVAL);
+                    let still_owned = conn
+                        .call_method(
+                            Some("org.freedesktop.DBus"),
+                            "/org/freedesktop/DBus",
+                            Some("org.freedesktop.DBus"),
+                            "GetNameOwner",
+                            &(BUS_NAME,),
+                        )
+                        .ok()
+                        .and_then(|reply| reply.body().deserialize::<String>().ok())
+                        .is_some_and(|owner| {
+                            conn.unique_name().is_some_and(|us| owner == us.as_str())
+                        });
+                    if !still_owned {
+                        eprintln!("w_dashboard: pomodoro D-Bus service lost {BUS_NAME}; reconnecting");
+                        break;
+                    }
+                }
+            });
+        }
     }
 }

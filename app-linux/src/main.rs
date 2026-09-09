@@ -868,7 +868,7 @@ fn main() -> anyhow::Result<()> {
     // is the only alert — SDD §11.4 step 6).
     let (tray_tx, tray_rx) = mpsc::channel::<PomodoroEvent>();
     let pomodoro_tray: Rc<Option<tray::PomodoroTray>> = Rc::new(if pomodoro_cfg.enabled {
-        tray::spawn_pomodoro_tray(tray_tx)
+        tray::spawn_pomodoro_tray(tray_tx, pomodoro_cfg.tray_icon)
     } else {
         None
     });

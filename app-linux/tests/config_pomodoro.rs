@@ -25,6 +25,7 @@ fn absent_section_uses_defaults() {
     assert!(cfg.pomodoro.sound);
     assert!(cfg.pomodoro.morning_nudge);
     assert_eq!(cfg.pomodoro.morning_nudge_after_minutes, 9 * 60);
+    assert!(cfg.pomodoro.tray_icon);
 
     fs::remove_file(&path).ok();
 }
@@ -34,7 +35,7 @@ fn full_section_is_parsed() {
     let path = temp_config_path("full");
     fs::write(
         &path,
-        "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nmorning_nudge = false\nmorning_nudge_after = \"08:30\"\n",
+        "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nmorning_nudge = false\nmorning_nudge_after = \"08:30\"\ntray_icon = false\n",
     )
     .unwrap();
 
@@ -46,6 +47,7 @@ fn full_section_is_parsed() {
     assert!(!cfg.pomodoro.sound);
     assert!(!cfg.pomodoro.morning_nudge);
     assert_eq!(cfg.pomodoro.morning_nudge_after_minutes, 8 * 60 + 30);
+    assert!(!cfg.pomodoro.tray_icon);
 
     fs::remove_file(&path).ok();
 }

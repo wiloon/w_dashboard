@@ -19,6 +19,12 @@ tasks:
     cmds:
       - cargo test
 
+  plasmoid:install:
+    desc: Install/upgrade the KDE Plasma pomodoro-clock widget (see app-linux/plasmoid/README.md)
+    dir: app-linux/plasmoid
+    cmds:
+      - kpackagetool6 -t Plasma/Applet -u dev.wdashboard.pomodoroclock || kpackagetool6 -t Plasma/Applet -i dev.wdashboard.pomodoroclock
+
   macos:dev:
     desc: Build and run the macOS app via swift run (fast iteration; Cmd+V paste in dialogs may route to Terminal since it's not a real .app bundle)
     dir: app-macos

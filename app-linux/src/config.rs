@@ -62,6 +62,11 @@ pub struct PomodoroConfig {
     /// Beijing wall-clock time-of-day, as minutes since midnight, after which the
     /// morning nudge kicks in (`morning_nudge_after` `"HH:MM"` in the file).
     pub morning_nudge_after_minutes: u16,
+    /// Linux only: register the StatusNotifierItem tray icon (`tray.rs`).
+    /// The pomodoro D-Bus service (for the optional KDE Plasma widget, see
+    /// `app-linux/plasmoid/`) always runs regardless of this flag — set it to
+    /// `false` once you've added that widget, to avoid showing both.
+    pub tray_icon: bool,
 }
 
 impl Default for PomodoroConfig {
@@ -73,6 +78,7 @@ impl Default for PomodoroConfig {
             notify: true,
             sound: true,
             morning_nudge: true,
+            tray_icon: true,
             morning_nudge_after_minutes: 9 * 60,
         }
     }
@@ -153,6 +159,7 @@ struct PomodoroConfigRaw {
     sound: Option<bool>,
     morning_nudge: Option<bool>,
     morning_nudge_after: Option<String>,
+    tray_icon: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -362,6 +369,7 @@ fn parse_pomodoro(raw: Option<PomodoroConfigRaw>) -> Result<PomodoroConfig, Conf
             raw.morning_nudge_after.as_deref(),
             default.morning_nudge_after_minutes,
         )?,
+        tray_icon: raw.tray_icon.unwrap_or(default.tray_icon),
     })
 }
 

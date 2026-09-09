@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Wang Yue",
+                "Email": "wiloon.wy@gmail.com"
+            }
+        ],
+        "Category": "Date and Time",
+        "Description": "Beijing time plus the w_dashboard pomodoro phase, as wide panel text (like the macOS menu-bar item)",
+        "Icon": "chronometer",
+        "Id": "dev.wdashboard.pomodoroclock",
+        "License": "MIT",
+        "Name": "W Dashboard Pomodoro Clock",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
