@@ -28,6 +28,22 @@ swift run WDashboardApp  # 启动窗口
 open dist/WDashboard.app
 ```
 
+## 安装到系统（Spotlight 可搜 + 开机启动）
+
+```sh
+./Scripts/install-macos.sh     # 或 task macos:install
+./Scripts/uninstall-macos.sh   # 或 task macos:uninstall
+```
+
+`install-macos.sh` 会：release 构建 → 拷 `WDashboard.app` 到 `~/Applications`（Spotlight/Raycast/Alfred
+会索引该目录）→ `mdimport` 立即建索引 → 写 `~/Library/LaunchAgents/dev.wdashboard.app.plist`
+（`RunAtLoad`，`KeepAlive=false`，退出后不自动重启）并 `launchctl bootstrap` 到当前 GUI 会话。
+全程无 GUI 操作、无 TCC 授权弹窗。
+
+图标是 `Resources/WDashboard.icns`（`Info.plist` 里 `CFBundleIconFile=WDashboard`，`build-app.sh`
+会拷进 bundle）。要改图标：编辑 `Scripts/make-icon.py` 后 `python3 Scripts/make-icon.py`（需 Pillow）
+重新生成 `.icns`，再拷到 `Resources/`。
+
 ## 当前范围
 
 对齐 `app-linux` 当前实现：Repos（含仓库增删改，以及 Pull / Push / Fetch 同步操作按钮，见 SDD §7.5 / ADR-011）、Clocks、Weather、Pomodoro 四分区。Pomodoro（番茄钟，见 SDD §11 / ADR-012）含菜单栏图标状态机——时段结束时 `timer` 图标转红/橙并闪烁。chezmoi 面板尚未在两端任一侧实现，留待后续里程碑两端同步做（见 `../docs/task-spec.md`）。

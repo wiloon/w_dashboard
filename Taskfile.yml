@@ -38,6 +38,18 @@ tasks:
       - ./Scripts/build-app.sh
       - open dist/WDashboard.app
 
+  macos:install:
+    desc: Build, install WDashboard.app into ~/Applications (Spotlight-searchable) and register a login-item LaunchAgent
+    dir: app-macos
+    cmds:
+      - ./Scripts/install-macos.sh
+
+  macos:uninstall:
+    desc: Remove the ~/Applications install and the login-item LaunchAgent
+    dir: app-macos
+    cmds:
+      - ./Scripts/uninstall-macos.sh
+
   macos-build:
     desc: Build the macOS app
     dir: app-macos

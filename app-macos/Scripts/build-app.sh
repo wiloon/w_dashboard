@@ -17,6 +17,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 BIN_PATH="$(swift build -c release --product WDashboardApp --show-bin-path)"
 cp "$BIN_PATH/WDashboardApp" "$MACOS_DIR/WDashboard"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
+cp Resources/WDashboard.icns "$RESOURCES_DIR/WDashboard.icns"
 
 echo "Built $APP_DIR"
 echo "Run with: open $APP_DIR"
