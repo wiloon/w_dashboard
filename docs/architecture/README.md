@@ -20,6 +20,7 @@ Trade-offs（取舍）→ Consequences（后果与缓解）→ Revisit Trigger�
 | [ADR-010](adr-010-incremental-repo-refresh.md) | 仓库状态刷新：并发采集 + 逐行增量更新 | Accepted |
 | [ADR-011](adr-011-explicit-safe-git-actions.md) | 从纯只读放开到三个显式安全操作（pull --ff-only / push / fetch） | Accepted |
 | [ADR-012](adr-012-pomodoro-timer.md) | 番茄钟：在 w_dashboard 内新增一个常驻桌面小工具，时段结束闪烁托盘图标 | Accepted |
+| [ADR-013](adr-013-now-panel-merge.md) | 面板密度：番茄钟与时钟合并为顶部「当下（Now）」区，进度条改环形（macOS 先落地，Linux 待跟进） | Accepted |
 
 ## 设计总原则
 

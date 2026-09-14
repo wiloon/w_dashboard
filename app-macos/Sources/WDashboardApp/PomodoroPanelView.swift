@@ -1,29 +1,23 @@
 import SwiftUI
 import WDashboardCore
 
-/// Pomodoro panel (docs/sdd.md §9 section 5 / §11.4 step 2). Renders
-/// `appState.pomodoro` and posts `PomodoroEvent`s; all logic is in the core.
+/// Pomodoro controls — the left half of the top "Now" card (docs/sdd.md §9 / §11.4
+/// step 2, ADR-013). Renders `appState.pomodoro` and posts `PomodoroEvent`s; all
+/// logic is in the core. The `*Ended` highlight border wraps only this subview,
+/// never the clocks sharing the card.
 struct PomodoroPanelView: View {
     @EnvironmentObject var appState: AppState
 
     private var view: PomodoroView { appState.pomodoro }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Pomodoro").font(.headline)
+        HStack(alignment: .center, spacing: 16) {
+            ring
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(phaseLabel)
-                        .font(.system(.title3, weight: .semibold))
-                    Spacer()
-                    Text(timeLabel)
-                        .font(.system(.title2, design: .monospaced))
-                        .foregroundStyle(view.alerting ? accent : Color.primary)
-                }
-
-                ProgressView(value: view.progress)
-                    .tint(accent)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(phaseLabel)
+                    .font(.system(.headline, weight: .semibold))
+                    .foregroundStyle(view.alerting ? accent : Color.primary)
 
                 HStack(spacing: 8) {
                     // One toggle button that walks the cycle Focus → Break → Focus…
@@ -34,19 +28,33 @@ struct PomodoroPanelView: View {
                         .tint(view.alerting ? accent : .accentColor)
                     Button("Stop") { appState.pomodoroEvent(.stop) }
                         .disabled(view.phase == .idle)
-                    Spacer()
                 }
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(view.alerting ? accent : Color.clear, lineWidth: 2)
-                    )
-            )
         }
+        .padding(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(view.alerting ? accent : Color.clear, lineWidth: 2)
+        )
+    }
+
+    /// Circular progress ring with the remaining / overtime time centred
+    /// (ADR-013: replaces the horizontal progress bar to save width).
+    private var ring: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 6)
+            Circle()
+                .trim(from: 0, to: max(0.0, min(1.0, view.progress)))
+                .stroke(accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text(timeLabel)
+                .font(.system(.title3, design: .monospaced))
+                .foregroundStyle(view.alerting ? accent : Color.primary)
+                .monospacedDigit()
+        }
+        .frame(width: 76, height: 76)
+        .animation(.linear(duration: 0.25), value: view.progress)
     }
 
     /// Focus / FocusEnded → the next click starts a break; every other phase

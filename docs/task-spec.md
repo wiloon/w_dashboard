@@ -20,6 +20,7 @@
 | M6 | 仓库同步操作：Pull / Push / Fetch 按钮 | M2, M3 |
 | M7 | 单行手动刷新按钮 | M5, M6 |
 | M8 | 番茄钟：面板 + 闪烁托盘/菜单栏图标 | M2, M3 |
+| M9 | 顶部「当下（Now）」区：番茄钟 + 时钟合并 / 环形进度（macOS 先落地，Linux 待跟进） | M8 |
 
 > **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
 
@@ -210,6 +211,41 @@
   - 应用重启后回到 `Idle`（状态不持久化）；
   - Linux 无 SNI host 时改为面板横幅 + 窗口标题 `⏰` 前缀；
   - 两端 `pomodoro` / `pomodoro-transition` 向量全过，既有 `cargo test` / `swift test` 全过，其余向量无改动。
+
+---
+
+## M9 — 顶部「当下（Now）」区：番茄钟 + 时钟合并 / 环形进度
+
+> 依据 [ADR-013](architecture/adr-013-now-panel-merge.md)。把主窗口顶部两张稀疏卡片（Pomodoro、Clocks）
+> 合为一张「当下」卡：左半番茄钟（环形进度环 + 按钮），右半时钟。**纯 UI 层调整**——番茄钟纯逻辑、
+> `pomodoro_view.progress` 语义、所有测试向量一律不动。
+
+- **T9.1** 规格先行：写 ADR-013；SDD §9 改为"四个视觉分区（当下 / Repos / chezmoi / Weather）、
+  信息条目仍 5 项、番茄钟仍逻辑第 1 项"，§11.4 步骤 2 面板描述改为环形进度环 + 「当下」卡左半区、
+  强提醒只作用于番茄钟子区域；同步 `CONTEXT.md`（新增「当下（Now）区」词条）、`docs/architecture/README.md` 索引。
+  `pomodoro/` 与 `pomodoro-transition/` 向量、§5.6 / §11.2 的 `progress` 语义**不改**。
+- **T9.2** macOS（`app-macos`）：
+  - 新增 `Sources/WDashboardApp/NowPanelView.swift`（或在 `ContentView` 内组合）：一张 `.regularMaterial`
+    卡，`HStack`——左 `PomodoroPanelView`、右 `ClocksView` 内容；`pomodoro.enabled == false` 时左半不渲染，
+    卡片退化为纯时钟。
+  - `PomodoroPanelView`：横向 `ProgressView` 换成环形进度环（`Circle().trim(from:0,to:progress)` +
+    `.rotationEffect(-90°)`，`mm:ss` / `+mm:ss` 居中 `Text`，环色 = 现有 `accent`）。`*Ended` 高亮边框
+    与早晨提醒提示只包住番茄钟子区域（现状即如此，合并后确认不外溢到时钟）。
+  - `ContentView`：`ScrollView` 里第一项换成「当下」卡；删掉原先单独的 `ClocksView` 分区调用；
+    分区顺序变为 当下 / Repos / chezmoi(隐含) / Weather。
+  - `ClocksView`：日期行改为省略或小字（保留 label + 时间为主）。
+  - `swift build` + `swift test` 全绿（测试无新增/改动——纯 UI）。
+- **T9.3** Linux **Slint 主窗口**：**待跟进**，不在本次交付。跟进前保持"番茄钟单行置顶 + 时钟单独卡"，
+  信息顺序不变即可（SDD §9 允许布局各端适配）。KDE plasmoid（`app-linux/plasmoid/`）是面板小组件、
+  对应 macOS 菜单栏项而非主窗口，已把"北京时钟 + phase"并在一起——**不需要因本里程碑改动**。
+- **验收**：
+  - macOS 主窗口顶部是一张卡，左番茄钟（环形进度环，时间居中，环随倒计时推进 / `*Ended` 满环变色）、
+    右北京 + 纽约时钟；
+  - `pomodoro.enabled = false` 时该卡只剩时钟；
+  - `*Ended` 时高亮只在番茄钟半区，时钟不受影响；
+  - 番茄钟按钮行为、tick、通知 / 声音 / 托盘图标、早晨提醒全部与 M8 一致；
+  - `swift test` 全过，向量零改动；
+  - Linux 两端未改，仍按原布局工作。
 
 ---
 

@@ -457,13 +457,15 @@ porcelain v2 计数规则（精确）：
 
 ## 9. UI 设计要点（两端一致的信息架构）
 
-五个分区，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
+**信息条目 5 项**（§1 概述），呈现为**四个视觉分区**，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
 
-1. **Pomodoro**（置顶）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、进度条；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时整个分区隐藏。详见 §11。放在最上面是因为它是唯一需要主动操作的分区，其余四个是只读监视。
+1. **当下（Now）**（置顶）：一张卡，左半**番茄钟**、右半**时钟**——都是"瞬时状态"（见 [ADR-013](architecture/adr-013-now-panel-merge.md)）。
+   - **番茄钟子区域**：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、**环形进度环**（进度 = §11.2 的 `progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase；`*Ended` 整环填满并变色）；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时番茄钟子区域隐藏，卡片退化为纯时钟。详见 §11。番茄钟放在最上面是因为它是唯一需要主动操作的部分，其余都是只读监视；`*Ended` 高亮边框与早晨提醒的琥珀提示**只作用于番茄钟子区域**，不波及右半时钟。
+   - **时钟子区域**：每个配置时区一列（label + 当前时间），实时更新。日期可省略或缩为小字 / hover 查看。
+   - **落地状态**：macOS 已按此合并（ADR-013）；**Linux Slint 主窗口待跟进**——在跟进前可保留"番茄钟单行置顶 + 时钟单独卡"，只要信息顺序不变（§9 允许布局各端适配）。KDE plasmoid（`app-linux/plasmoid/`）是面板小组件、对应 macOS 菜单栏项，已把北京时钟 + phase 并在一起，不受本条影响。
 2. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在 name 那一行**同行内**显示一行结果（成功绿 / 失败红，过长则省略号截断、hover 看全文），不另占纵向空间以免行高参差；结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
 3. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
-4. **Clocks**：每个配置时区一个时钟，实时更新。
-5. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
+4. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
 
 颜色语义（两端一致）：绿=Clean、黄=NeedsPush/NeedsPull/Dirty、红=Diverged/Error、灰=NoUpstream/未配置/采集中（§8.1）；番茄钟 `FocusEnded` 用红、`BreakEnded` 用橙（§11.4）。
 
@@ -565,7 +567,7 @@ porcelain v2 计数规则（精确）：
 ### 11.4 UI 层职责（两端各自实现，不进向量）
 
 1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
-2. **面板**（§9 置顶分区）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、进度条、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。
+2. **面板**（§9 置顶「当下」卡片的番茄钟子区域，见 ADR-013）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、**环形进度环**（进度取 `pomodoro_view.progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase，`*Ended` 整环填满并变色）、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。`*Ended` 高亮边框、早晨提醒的琥珀提示只包住这个子区域，不波及同卡右半的时钟。环形进度环是纯展示、无逻辑、不进向量（同 ADR-006 时钟由各端 UI 自绘）。macOS 已按此实现；Linux（Slint 主窗口 + plasmoid）待跟进，跟进前可用横向进度条 + 独立分区。
 3. **托盘 / 菜单栏图标状态机**（由 `phase` / `alerting` 驱动）：
 
    | phase | 图标 |

@@ -20,11 +20,8 @@ struct ContentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if appState.config.pomodoro.enabled {
-                        PomodoroPanelView()
-                    }
+                    NowPanelView()
                     RepoListView(showManageRepos: $showManageRepos)
-                    ClocksView()
                     WeatherView()
                 }
             }
