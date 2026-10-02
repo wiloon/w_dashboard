@@ -1,0 +1,14 @@
+{
+  "input": {
+    "text": "PING 192.168.1.1 (192.168.1.1) 56(84) bytes of data.\n64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time=0.512 ms\n64 bytes from 192.168.1.1: icmp_seq=2 ttl=64 time=1.03 ms\n64 bytes from 192.168.1.1: icmp_seq=3 ttl=64 time=0.498 ms\n64 bytes from 192.168.1.1: icmp_seq=4 ttl=64 time=2 ms\n\n--- 192.168.1.1 ping statistics ---\n4 packets transmitted, 4 received, 0% packet loss, time 603ms\nrtt min/avg/max/mdev = 0.498/1.010/2.000/0.611 ms\n"
+  },
+  "expected": {
+    "sent": 4,
+    "rtts_ms": [
+      0.512,
+      1.03,
+      0.498,
+      2.0
+    ]
+  }
+}

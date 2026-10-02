@@ -1,0 +1,7 @@
+{
+  "input": {
+    "status": 200,
+    "body": "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"
+  },
+  "expected": "NotDetected"
+}

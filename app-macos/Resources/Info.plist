@@ -24,5 +24,9 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
+    <key>NSLocationUsageDescription</key>
+    <string>w_dashboard uses Location only to read the name (SSID) of the connected Wi-Fi network, shown on the Network tab.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>w_dashboard uses Location only to read the name (SSID) of the connected Wi-Fi network, shown on the Network tab.</string>
 </dict>
 </plist>

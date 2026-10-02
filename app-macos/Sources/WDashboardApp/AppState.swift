@@ -8,7 +8,9 @@
 // its own result lands, instead of the whole list being replaced at the end.
 
 import AppKit
+import CoreLocation
 import Foundation
+import Network
 import SwiftUI
 import WDashboardCore
 
@@ -58,6 +60,27 @@ final class AppState: ObservableObject {
     /// Last morning-nudge value handed to the menu-bar icon; only re-sent on a change.
     private var lastMorningNudge = false
 
+    // ---------------- Network health (docs/sdd.md §12, ADR-014) ----------------
+    // Latest results only, in memory (never persisted). Scheduling lives in
+    // AppState+Network.swift.
+    @Published var networkReport: NetworkReport?
+    @Published var networkProbing = false
+    @Published var linkInfo = LinkInfo()
+    @Published var speedReport: SpeedTestReport?
+    /// Step key ("domestic-down", …) of the running speed test; nil when idle.
+    @Published var speedtestStep: String?
+    var probePending = false
+    var networkTimerTask: Task<Void, Never>?
+    var pathDebounceTask: Task<Void, Never>?
+    /// System default path (availability, VPN tunnel) + Wi-Fi-only path (network
+    /// switches that a full-tunnel VPN would hide from the default path).
+    var pathMonitor: NWPathMonitor?
+    var wifiPathMonitor: NWPathMonitor?
+    var defaultPath: NWPath?
+    var wifiPath: NWPath?
+    var lastPathSignature: String?
+    let locationManager = CLLocationManager()
+
     let configPath: String
 
     private var started = false
@@ -102,6 +125,7 @@ final class AppState: ObservableObject {
         startClockTimer()
         startAutoRefreshTimer()
         startPomodoroTimer()
+        startNetwork()
     }
 
     // ---------------- Pomodoro ----------------

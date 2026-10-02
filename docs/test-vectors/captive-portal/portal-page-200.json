@@ -1,0 +1,7 @@
+{
+  "input": {
+    "status": 200,
+    "body": "<html><head><title>Mall Free WiFi</title></head><body>请输入手机号登录</body></html>"
+  },
+  "expected": "Detected"
+}

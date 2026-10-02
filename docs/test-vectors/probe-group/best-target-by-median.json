@@ -1,0 +1,40 @@
+{
+  "input": {
+    "group": "Domestic",
+    "results": [
+      {
+        "label": "AliDNS",
+        "stats": {
+          "sent": 10,
+          "received": 10,
+          "loss_pct": 0.0,
+          "rtt_min_ms": 30.0,
+          "rtt_median_ms": 30.0,
+          "rtt_max_ms": 30.0,
+          "jitter_ms": 0.0
+        }
+      },
+      {
+        "label": "Baidu",
+        "stats": {
+          "sent": 10,
+          "received": 10,
+          "loss_pct": 0.0,
+          "rtt_min_ms": 20.0,
+          "rtt_median_ms": 21.0,
+          "rtt_max_ms": 25.0,
+          "jitter_ms": 2.3
+        }
+      }
+    ]
+  },
+  "expected": {
+    "group": "Domestic",
+    "sent": 20,
+    "received": 20,
+    "loss_pct": 0.0,
+    "best_label": "Baidu",
+    "median_ms": 21.0,
+    "jitter_ms": 2.3
+  }
+}

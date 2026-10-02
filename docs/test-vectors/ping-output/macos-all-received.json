@@ -1,0 +1,15 @@
+{
+  "input": {
+    "text": "PING 192.168.207.254 (192.168.207.254): 56 data bytes\n64 bytes from 192.168.207.254: icmp_seq=0 ttl=64 time=8.199 ms\n64 bytes from 192.168.207.254: icmp_seq=1 ttl=64 time=35.120 ms\n64 bytes from 192.168.207.254: icmp_seq=2 ttl=64 time=59.158 ms\n64 bytes from 192.168.207.254: icmp_seq=3 ttl=64 time=41.002 ms\n64 bytes from 192.168.207.254: icmp_seq=4 ttl=64 time=34.701 ms\n\n--- 192.168.207.254 ping statistics ---\n5 packets transmitted, 5 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 8.199/35.636/59.158/16.274 ms\n"
+  },
+  "expected": {
+    "sent": 5,
+    "rtts_ms": [
+      8.199,
+      35.12,
+      59.158,
+      41.002,
+      34.701
+    ]
+  }
+}

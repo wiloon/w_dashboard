@@ -80,3 +80,31 @@ _Avoid_: overtime, 结束态, done
 **早晨提醒（morning nudge）**：
 每天早上（北京时间，`morning_nudge_after` 缺省 09:00 后）还停在 `Idle` 且当天没开过专注时，托盘/菜单栏图标闪琥珀色提醒用户开第一个番茄钟。当天开过一次专注即停。只闪图标——比超时提醒态弱一档，不发通知、不响声音。纯 UI 层判据（读北京墙上时钟），不进向量。
 _Avoid_: reminder, alarm（"提醒"这里特指这个早晨行为，`*Ended` 那套叫"超时提醒态"）
+
+### 网络健康
+
+**网络健康（Network Health）**：
+本机**当前所连网络**的质量：延迟、丢包、抖动、是否需要网页认证，加上手动测速。位于主窗口`Network`标签页（ADR-014、SDD §12）。只看"此刻"，不存历史。
+_Avoid_: 网速监控, network monitor
+
+**实际路径**：
+跟随系统默认路由与系统代理的测量路径——开着 WireGuard / Clash 时，测到的是经隧道 / 代理后的真实体验，而不是热点本身。网络健康的所有测量（Captive 检测除外）都走实际路径。
+_Avoid_: 直连, raw
+
+**轻量探测（probe）**：
+一轮对网关与各目标的延迟采样 + Captive 检测，流量很小，自动执行（启动 / 定时 / 网络切换）也可手动。
+_Avoid_: ping（ping 只是网关的采样手段之一）, 检测
+
+**测速（speed test）**：
+国内（Apple）/ 国外（Cloudflare）各测下行与上行的单流 HTTP 测速，限时限量，**只手动触发**。
+_Avoid_: benchmark
+
+**目标组（probe group）**：
+探测目标按 网关 / 国内 / 国外 / 家 分组。一组的延迟取组内**最佳目标**的中位数，丢包按全组累计。只有国内组（和网关）参与健康等级判定。
+
+**健康等级（HealthLevel）**：
+一轮探测派生出的单一结论：`Good` / `Fair` / `Poor` / `NoInternet` / `CaptivePortal` / `Offline` / `Unknown`，由 SDD §12.4 决策表决定。
+_Avoid_: score, 评分
+
+**Captive Portal（网页认证）**：
+连上热点后还要在网页里登录才能上网的状态。检测时绑定物理接口、不走代理——这是"实际路径"的唯一例外。

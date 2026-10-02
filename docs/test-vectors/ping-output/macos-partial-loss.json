@@ -1,0 +1,13 @@
+{
+  "input": {
+    "text": "PING 10.0.0.1 (10.0.0.1): 56 data bytes\n64 bytes from 10.0.0.1: icmp_seq=0 ttl=64 time=3.512 ms\nRequest timeout for icmp_seq 1\n64 bytes from 10.0.0.1: icmp_seq=2 ttl=64 time=4.1 ms\nRequest timeout for icmp_seq 3\n64 bytes from 10.0.0.1: icmp_seq=4 ttl=64 time=120.95 ms\n\n--- 10.0.0.1 ping statistics ---\n5 packets transmitted, 3 packets received, 40.0% packet loss\nround-trip min/avg/max/stddev = 3.512/42.854/120.950/55.226 ms\n"
+  },
+  "expected": {
+    "sent": 5,
+    "rtts_ms": [
+      3.512,
+      4.1,
+      120.95
+    ]
+  }
+}

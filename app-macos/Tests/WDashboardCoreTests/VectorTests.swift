@@ -296,4 +296,123 @@ final class VectorTests: XCTestCase {
             XCTAssertEqual(got.alerting, exp.alerting, "alerting mismatch in \(name)")
         }
     }
+
+    // ---------------- Network health (docs/sdd.md §12) ----------------
+
+    func testPingOutputVectors() throws {
+        struct Expected: Decodable {
+            var sent: Int?
+            var rtts_ms: [Double]?
+            var error: String?
+        }
+        struct Vector: Decodable {
+            struct Input: Decodable { var text: String }
+            var input: Input
+            var expected: Expected
+        }
+
+        for file in try vectorFiles("ping-output") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            if vector.expected.error != nil {
+                XCTAssertThrowsError(try parsePing(vector.input.text), "expected parse error in \(name)")
+                continue
+            }
+            let got = try parsePing(vector.input.text)
+            XCTAssertEqual(got.sent, vector.expected.sent, "sent mismatch in \(name)")
+            XCTAssertEqual(got.rttsMs, vector.expected.rtts_ms, "rtts_ms mismatch in \(name)")
+        }
+    }
+
+    func testProbeStatsVectors() throws {
+        struct Vector: Decodable {
+            struct Input: Decodable {
+                var sent: Int
+                var rtts_ms: [Double]
+            }
+            var input: Input
+            var expected: ProbeStats
+        }
+
+        for file in try vectorFiles("probe-stats") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            let got = probeStats(sent: vector.input.sent, rttsMs: vector.input.rtts_ms)
+            XCTAssertEqual(got, vector.expected, "probe stats mismatch in \(name)")
+        }
+    }
+
+    func testProbeGroupVectors() throws {
+        struct Vector: Decodable {
+            struct Result: Decodable {
+                var label: String
+                var stats: ProbeStats
+            }
+            struct Input: Decodable {
+                var group: ProbeGroup
+                var results: [Result]
+            }
+            var input: Input
+            var expected: GroupSummary?
+        }
+
+        for file in try vectorFiles("probe-group") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            let got = probeGroupSummary(vector.input.group, vector.input.results.map { ($0.label, $0.stats) })
+            XCTAssertEqual(got, vector.expected, "group summary mismatch in \(name)")
+        }
+    }
+
+    func testCaptivePortalVectors() throws {
+        struct Vector: Decodable {
+            struct Input: Decodable {
+                var status: Int
+                var body: String
+            }
+            var input: Input
+            var expected: CaptiveState
+        }
+
+        for file in try vectorFiles("captive-portal") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            XCTAssertEqual(
+                classifyCaptive(status: vector.input.status, body: vector.input.body), vector.expected,
+                "captive mismatch in \(name)")
+        }
+    }
+
+    func testNetworkHealthVectors() throws {
+        struct Vector: Decodable {
+            var input: HealthInput
+            var expected: HealthLevel
+        }
+
+        for file in try vectorFiles("network-health") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            XCTAssertEqual(networkHealth(vector.input), vector.expected, "health mismatch in \(name)")
+        }
+    }
+
+    func testThroughputVectors() throws {
+        struct Vector: Decodable {
+            struct Input: Decodable {
+                var bytes: Int64
+                var elapsed_ms: Int64
+            }
+            struct Expected: Decodable { var mbps: Double? }
+            var input: Input
+            var expected: Expected
+        }
+
+        for file in try vectorFiles("throughput") {
+            let name = file.lastPathComponent
+            let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: file))
+            XCTAssertEqual(
+                throughputMbps(bytes: vector.input.bytes, elapsedMs: vector.input.elapsed_ms), vector.expected.mbps,
+                "throughput mismatch in \(name)")
+        }
+    }
 }

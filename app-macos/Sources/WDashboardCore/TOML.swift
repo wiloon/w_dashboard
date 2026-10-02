@@ -61,6 +61,8 @@ public struct TOMLDocument: Sendable {
     public var weather: [String: TOMLValue]?
     public var chezmoi: [String: TOMLValue]?
     public var pomodoro: [String: TOMLValue]?
+    public var network: [String: TOMLValue]?
+    public var networkTargets: [[String: TOMLValue]] = []
 }
 
 /// Strip a trailing `# ...` comment that is not inside a quoted string.
@@ -150,6 +152,8 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
         case chezmoi
         case weather
         case pomodoro
+        case network
+        case networkTargetsArray
         case reposArray
         case clocksArray
         case unknownTable
@@ -172,6 +176,9 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
             case "clocks":
                 doc.clocks.append([:])
                 target = .clocksArray
+            case "network_targets":
+                doc.networkTargets.append([:])
+                target = .networkTargetsArray
             default:
                 target = .unknownArray
             }
@@ -191,6 +198,9 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
             case "pomodoro":
                 doc.pomodoro = doc.pomodoro ?? [:]
                 target = .pomodoro
+            case "network":
+                doc.network = doc.network ?? [:]
+                target = .network
             default:
                 target = .unknownTable
             }
@@ -208,6 +218,11 @@ public func parseTOML(_ text: String) throws -> TOMLDocument {
             doc.weather?[key] = value
         case .pomodoro:
             doc.pomodoro?[key] = value
+        case .network:
+            doc.network?[key] = value
+        case .networkTargetsArray:
+            guard !doc.networkTargets.isEmpty else { break }
+            doc.networkTargets[doc.networkTargets.count - 1][key] = value
         case .reposArray:
             guard !doc.repos.isEmpty else { break }
             doc.repos[doc.repos.count - 1][key] = value

@@ -21,6 +21,7 @@
 | M7 | 单行手动刷新按钮 | M5, M6 |
 | M8 | 番茄钟：面板 + 闪烁托盘/菜单栏图标 | M2, M3 |
 | M9 | 顶部「当下（Now）」区：番茄钟 + 时钟合并 / 环形进度（macOS 先落地，Linux 待跟进） | M8 |
+| M10 | 网络健康：延迟 / 丢包 / 抖动 / Captive / Wi-Fi 信息 + 手动测速（macOS 先落地，Linux 待跟进） | M3 |
 
 > **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
 
@@ -249,6 +250,36 @@
 
 ---
 
+## M10 — 网络健康：`Network`标签页
+
+> 依据 [ADR-014](architecture/adr-014-network-health.md) 与 [SDD §12](sdd.md)。测的是**实际路径**
+> （跟随默认路由与系统代理）。纯逻辑（ping 解析 / 采样统计 / 分组汇总 / Captive 判定 / 健康等级 / 吞吐量）进向量；
+> 探测、测速、链路信息、触发调度属采集入口与 UI 层。**macOS 先落地，Linux 待跟进。**
+
+- **T10.1** 规格先行（✅）：ADR-014；SDD §1 第 6 项、§4 `[network]` / `[[network_targets]]`、§5.7 模型、§6 接口、§9 顶部标签切换、§10.2 第 9–14 类向量、新增 §12「网络健康」（原 §12–§14 顺延为 §13–§15）、§14 非目标补一条；同步 `CONTEXT.md`、`config.example.toml`、`AGENTS.md`、`.cursor/rules/ui-no-logic.mdc`、ADR 索引。
+- **T10.2** 测试向量（✅）：`ping-output/`（6）、`probe-stats/`（7）、`probe-group/`（5）、`captive-portal/`（4）、`network-health/`（15）、`throughput/`（4）。
+- **T10.3** app-macos 实现（✅；真机走查见下方验收，测速未在公共 Wi-Fi 上按按钮实测）：
+  - `Sources/WDashboardCore/Network.swift`：模型（`ProbeStats` / `TargetResult` / `GroupSummary` / `NetworkReport` / `SpeedItem` / `SpeedTestReport` / 枚举）+ 纯函数 `parsePing` / `probeStats` / `probeGroupSummary` / `classifyCaptive` / `networkHealth` / `throughputMbps`。
+  - `Sources/WDashboardCore/NetworkProbe.swift`：`probeNetwork(config)`——网关（`ipconfig getoption` + `ping` 子进程，复用 `Process.swift` 超时机制）、HTTP RTT（ephemeral `URLSession` + `URLSessionTaskMetrics`）、TCP 握手（`Network.framework` `NWConnection`）、Captive（绑定 Wi-Fi 接口、无代理、不跟随重定向）；`runSpeedtest(config, onStep:)`。
+  - `Config.swift` + `TOML.swift`：`[network]` 与 `[[network_targets]]` 解析与校验（§12.2），无目标时用 5 个内置缺省。
+  - UI：`ContentView` 顶部分段控件 `[ Dashboard | Network ]`；新增 `NetworkView.swift`（概览 / Wi-Fi / 延迟表 / 测速）；`AppState` 持有最近 `NetworkReport` / `SpeedTestReport`，按 §12.8 调度（启动 / 定时 / `NWPathMonitor` 去抖 3s / 手动，进行中合并，测速期间顺延）。
+  - 链路信息：`NWPathMonitor`（可用性 / 接口类型 / VPN）、`CFNetworkCopySystemProxySettings`（系统代理）、CoreWLAN（SSID / RSSI / 噪声 / 速率 / 信道 / 频段）；`Resources/Info.plist` 加 `NSLocationUsageDescription` / `NSLocationWhenInUseUsageDescription`，进入`Network`标签时 `CLLocationManager` 申请授权。
+  - `Tests/WDashboardCoreTests/VectorTests.swift` 加 6 类向量；新增 `ConfigNetworkTests.swift`（缺省 / 自定义目标 / 非法 group / 非法 method / 缺字段 / 越界）；新增 `NetworkProbeSmokeTests.swift`（真实联网，仅 `W_DASHBOARD_NET_SMOKE=1` 时运行）。
+  - `Scripts/build-app.sh` 末尾 ad-hoc `codesign`，让定位权限绑定到 `.app`。
+- **T10.4** app-linux：**待跟进**。网关 `ip route` + `ping`、Wi-Fi `nmcli`、HTTP RTT 用 `reqwest`（读代理环境变量）；Slint 主窗口加标签切换。
+- **验收（macOS）**：
+  - 主窗口顶部出现 `[ Dashboard | Network ]`；`network.enabled = false` 时不出现；`Dashboard`内容与 M9 一致；
+  - 启动后自动完成一轮探测，此后每 60 秒一轮；切换 Wi-Fi 后约 3 秒内自动重测；`Re-check`可手动触发；
+  - 延迟表按 网关 / 国内 / 国外 / 家 分组，显示中位延迟 / 抖动 / 丢包；`home.wiloon.com:443` 显示 TCP 握手延迟；
+  - 健康等级徽标与 §12.4 一致；在需要网页认证的热点上显示 `Sign-in required`；
+  - `Run speed test`依次跑 4 步并显示 Mbps；每方向不超过 8 秒 / 25 MB；测速期间不跑探测；单步失败只影响该格；
+  - Wi-Fi 区显示 RSSI / 噪声 / 速率 / 信道 / 频段；授权定位后显示 SSID；
+  - 开着 WireGuard / Clash 时，路径行显示 `via VPN` / `system proxy on`，测量结果反映经隧道/代理后的路径；
+  - 结果不写盘，重启后为空；
+  - 6 类新向量全过，既有 `swift test` 全过。
+
+---
+
 ## 验收基线（贯穿所有里程碑）
 
 - **测试向量是一致性的权威闸门**：两端的解析与派生（git porcelain、RepoState、chezmoi status、weather JSON、WMO 映射）都必须通过 `docs/test-vectors/` 中的同一份用例。
@@ -257,8 +288,9 @@
 - 所有联网与子进程调用均有超时与降级。
 - 两端在相同配置下对同一仓库/配置给出一致的状态结论。
 
-## 当前阶段不做（与 SDD §13 一致）
+## 当前阶段不做（与 SDD §14 一致）
 
 后端/服务端、跨机汇总、Web 端、历史/告警、多用户/鉴权、共享二进制 core / FFI。
 git 写操作只做 `pull --ff-only` / `push` / `fetch` 三个显式安全操作（M6、ADR-011）；不做 commit / merge / rebase / 冲突解决 / stash 等。
 番茄钟只做久坐提醒（M8、ADR-012）；不做长休息 / 统计 / 跨重启恢复 / 任务清单 / 多计时器。
+网络健康只看"此刻"（M10、ADR-014）；不存历史 / 不告警 / 不自动测速 / v1 不测到家速率。

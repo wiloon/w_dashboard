@@ -1,0 +1,34 @@
+{
+  "input": {
+    "path_available": true,
+    "captive": "Detected",
+    "gateway": {
+      "sent": 10,
+      "received": 10,
+      "loss_pct": 0.0,
+      "rtt_min_ms": 3.0,
+      "rtt_median_ms": 3.0,
+      "rtt_max_ms": 3.0,
+      "jitter_ms": 1.0
+    },
+    "domestic": {
+      "group": "Domestic",
+      "sent": 20,
+      "received": 0,
+      "loss_pct": 100.0,
+      "best_label": null,
+      "median_ms": null,
+      "jitter_ms": null
+    },
+    "overseas": {
+      "group": "Overseas",
+      "sent": 20,
+      "received": 0,
+      "loss_pct": 100.0,
+      "best_label": null,
+      "median_ms": null,
+      "jitter_ms": null
+    }
+  },
+  "expected": "CaptivePortal"
+}

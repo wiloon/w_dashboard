@@ -19,7 +19,11 @@ w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立�
 
 5. **番茄钟**——专注 / 休息计时；时段结束时闪烁托盘/菜单栏图标做强提醒（见 §11、ADR-012）。
 
-无后端、无数据库、无网络服务（仅天气直接调用公网 API）；番茄钟状态只存内存，不跨重启保留。
+以及一个独立的`Network`标签页：
+
+6. **网络健康**——本机所连网络的延迟 / 丢包 / 抖动、Captive Portal、Wi-Fi 链路信息与手动测速（见 §12、ADR-014；macOS 先落地）。
+
+无后端、无数据库、无网络服务（仅天气、网络探测 / 测速直接调用公网端点）；番茄钟状态与网络检测结果只存内存，不跨重启保留。
 
 ## 2. 架构总览
 
@@ -49,7 +53,7 @@ w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立�
 
 - 每端内部都建议分为**采集层**（config/git/chezmoi/weather/model）与 **UI 层**，两层解耦。番茄钟的纯逻辑（§11）同属核心层——不联网、不调命令，只是确定性状态机。
 - 两端各自用最地道的原生类型与库，不为跨语言一致而妥协（无 FFI、无跨语言构建链）。
-- 一致性由 §7 的精确派生规则 + §11 的番茄钟规则 + §10 的共享测试向量保证。
+- 一致性由 §7 的精确派生规则 + §11 的番茄钟规则 + §12 的网络健康规则 + §10 的共享测试向量保证。
 
 ## 3. 仓库目录结构
 
@@ -132,11 +136,57 @@ sound = true
 morning_nudge = true
 # 早晨提醒的起始时刻（"HH:MM" 24 小时，北京时间）
 morning_nudge_after = "09:00"
+
+[network]
+# 是否启用`Network`标签页与探测；false 时不显示标签、不跑任何探测（见 §12）
+enabled = true
+# 轻量探测（延迟/丢包/抖动）自动间隔（秒）。0 = 只在启动、网络切换、手动时探测
+probe_interval_secs = 60
+# 每个目标每轮采样次数（1–50）
+probe_samples = 10
+# 单次采样超时（毫秒，100–10000）
+probe_timeout_ms = 2000
+# 手动测速：每个方向的时间上限（秒）与流量上限（MB，10^6 字节），先到先停
+speedtest_max_secs = 8
+speedtest_max_mb = 25
+speedtest_domestic_download_url = "https://mensura.cdn-apple.com/api/v1/gm/large"
+speedtest_domestic_upload_url = "https://mensura.cdn-apple.com/api/v1/gm/slurp"
+speedtest_overseas_download_url = "https://speed.cloudflare.com/__down?bytes=25000000"
+speedtest_overseas_upload_url = "https://speed.cloudflare.com/__up"
+
+# 探测目标。一个都不写时用下面这 5 个内置缺省；写了任意一个则完全以配置为准。
+# group: "domestic" | "overseas" | "home"；method: "http"（缺省，需 url）| "tcp"（需 host + port）
+[[network_targets]]
+label = "AliDNS"
+group = "domestic"
+url = "https://223.5.5.5/"
+
+[[network_targets]]
+label = "Baidu"
+group = "domestic"
+url = "https://www.baidu.com/favicon.ico"
+
+[[network_targets]]
+label = "Cloudflare"
+group = "overseas"
+url = "https://1.1.1.1/cdn-cgi/trace"
+
+[[network_targets]]
+label = "GitHub"
+group = "overseas"
+url = "https://github.com/robots.txt"
+
+[[network_targets]]
+label = "Home"
+group = "home"
+method = "tcp"
+host = "home.wiloon.com"
+port = 443
 ```
 
 配置加载规则（两端按同一规格实现）：
 - 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"、pomodoro `enabled=true` 且 25/5/true/true）。
-- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`）返回带字段定位的明确错误，UI 展示为可读提示。
+- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`、`[network]` / `[[network_targets]]` 越界或缺字段，见 §12.2）返回带字段定位的明确错误，UI 展示为可读提示。
 - `~` 与环境变量需统一展开。
 
 ## 5. 逻辑数据模型（语言无关）
@@ -243,7 +293,52 @@ morning_nudge_after = "09:00"
 | `progress` | float | `Focus`/`Break`: `clamp(elapsed / duration, 0, 1)`；`*Ended`: `1`；`Idle`: `0` |
 | `alerting` | bool | `phase ∈ { FocusEnded, BreakEnded }` |
 
-### 5.7 两端类型示意（同一模型，各自原生）
+### 5.7 网络健康模型（详见 §12）
+
+| ProbeStats 字段 | 类型 | 说明 |
+|------|------|------|
+| `sent` / `received` | int | 发出 / 收到的样本数 |
+| `loss_pct` | float | 丢包率 %（0.1 精度） |
+| `rtt_min_ms` / `rtt_median_ms` / `rtt_max_ms` | `float?` | 最小 / 中位 / 最大往返时延（ms，0.1 精度）；`received == 0` 为空 |
+| `jitter_ms` | `float?` | 抖动（相邻样本差绝对值均值，ms）；`received < 2` 为空 |
+
+| TargetResult 字段 | 类型 | 说明 |
+|------|------|------|
+| `label` | string | 显示名（网关固定为 `Gateway`） |
+| `group` | `ProbeGroup` | `Gateway` / `Domestic` / `Overseas` / `Home` |
+| `method` | `ProbeMethod` | `Icmp`（仅网关）/ `Http` / `Tcp` |
+| `target` | string | 网关 IP / URL / `host:port` |
+| `stats` | `ProbeStats?` | 采样统计；采集前置失败（如取不到网关）为空 |
+| `error` | `string?` | 失败原因一行 |
+
+| GroupSummary 字段 | 类型 | 说明 |
+|------|------|------|
+| `group` | `ProbeGroup` | 组 |
+| `sent` / `received` / `loss_pct` | int / int / float | 全组累计 |
+| `best_label` | `string?` | 中位延迟最低且 `received > 0` 的目标 |
+| `median_ms` / `jitter_ms` | `float?` | 取自最佳目标 |
+
+| NetworkReport 字段 | 类型 | 说明 |
+|------|------|------|
+| `probed_at` | int(unix 秒) | 本轮完成时刻 |
+| `gateway` | `TargetResult?` | 网关结果 |
+| `targets` | `TargetResult[]` | 远端目标结果（配置顺序） |
+| `groups` | `GroupSummary[]` | `Domestic` / `Overseas` / `Home` 中非空的组 |
+| `captive` | `CaptiveState` | `NotDetected` / `Detected` / `Unknown` |
+| `health` | `HealthLevel` | `Good` / `Fair` / `Poor` / `NoInternet` / `CaptivePortal` / `Offline` / `Unknown` |
+
+| SpeedItem 字段 | 类型 | 说明 |
+|------|------|------|
+| `group` | string | `domestic` / `overseas` |
+| `direction` | string | `down` / `up` |
+| `bytes` | int | 实际传输字节 |
+| `elapsed_ms` | int | 计时（口径见 §12.6） |
+| `mbps` | `float?` | `throughput_mbps(bytes, elapsed_ms)` |
+| `error` | `string?` | 该步失败原因 |
+
+`SpeedTestReport`：`{ started_at: int, finished_at: int?, items: SpeedItem[] }`。链路信息（Wi-Fi / VPN / 代理，§12.7）是 UI 层展示数据，不属于跨端模型。
+
+### 5.8 两端类型示意（同一模型，各自原生）
 
 ```rust
 // Rust（app-linux）
@@ -319,6 +414,20 @@ pomodoro_reduce(state: PomodoroState, event: PomodoroEvent, now: int) -> Pomodor
     纯函数：状态迁移。PomodoroEvent ∈ { StartFocus, StartBreak, Stop, Tick }。
     迁移规则见 §11.3；由 pomodoro-transition 测试向量锁定（§10.2）。
     focus_secs / break_secs 始终从最新配置注入，不随事件改变。
+
+parse_ping(text: string) -> { sent: int, rtts_ms: float[] } | ParseError
+probe_stats(sent: int, rtts_ms: float[]) -> ProbeStats
+probe_group_summary(group: ProbeGroup, results: { label, stats: ProbeStats }[]) -> GroupSummary?
+classify_captive(status: int, body: string) -> CaptiveState
+network_health(input: { path_available, captive, gateway?, domestic?, overseas? }) -> HealthLevel
+throughput_mbps(bytes: int, elapsed_ms: int) -> float?
+    网络健康的纯函数（§12.3–§12.6），分别由 ping-output / probe-stats / probe-group /
+    captive-portal / network-health / throughput 测试向量锁定（§10.2）。
+
+probe_network(config: Config) -> NetworkReport
+    跑一轮轻量探测（网关 + 全部目标 + Captive），永不整体失败，单项失败落在对应 TargetResult.error。
+run_speedtest(config: Config, on_step: callback) -> SpeedTestReport
+    顺序跑 4 步测速（§12.6），单步失败落在 SpeedItem.error。
 ```
 
 `GitActionResult`：`{ action: RepoAction, ok: bool, summary: string, error: string? }`
@@ -457,7 +566,11 @@ porcelain v2 计数规则（精确）：
 
 ## 9. UI 设计要点（两端一致的信息架构）
 
-**信息条目 5 项**（§1 概述），呈现为**四个视觉分区**，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
+**UI 语言**：两端所有用户可见文案一律**英文**（AGENTS.md 核心约束 8）。本文档用中文撰写，但其中出现的 UI 文案以英文原文为准。
+
+**顶部标签切换**：主窗口标题行放分段控件 `[ Dashboard | Network ]`（ADR-014）。`Dashboard`即下述四个分区；`Network`页见 §12.8。`network.enabled == false` 时不显示分段控件，窗口只有 `Dashboard`。
+
+`Dashboard`的**信息条目 5 项**（§1 概述 1–5），呈现为**四个视觉分区**，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
 
 1. **当下（Now）**（置顶）：一张卡，左半**番茄钟**、右半**时钟**——都是"瞬时状态"（见 [ADR-013](architecture/adr-013-now-panel-merge.md)）。
    - **番茄钟子区域**：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、**环形进度环**（进度 = §11.2 的 `progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase；`*Ended` 整环填满并变色）；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时番茄钟子区域隐藏，卡片退化为纯时钟。详见 §11。番茄钟放在最上面是因为它是唯一需要主动操作的部分，其余都是只读监视；`*Ended` 高亮边框与早晨提醒的琥珀提示**只作用于番茄钟子区域**，不波及右半时钟。
@@ -494,6 +607,12 @@ porcelain v2 计数规则（精确）：
 6. **wmo-codes**：weather_code → 文案 的完整映射表（两端共同引用，避免文案分叉）。
 7. **pomodoro/**：`input` = `{ phase, phase_started_at, focus_secs, break_secs, now }`；`expected` = `PomodoroView`。须覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。锁定 `pomodoro_view` 两端一致（§11.2）。
 8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值（规则 6）上下边界。锁定 `pomodoro_reduce` 两端一致。
+9. **ping-output/**：`input` = `{ "text": <ping 原始输出> }`；`expected` = `{ sent, rtts_ms }` 或 `{ "error": "Parse" }`。覆盖 macOS 与 Linux iputils 格式、部分丢包、全丢、`DUP!`、无统计行（§12.3）。
+10. **probe-stats/**：`input` = `{ sent, rtts_ms }`；`expected` = `ProbeStats`。覆盖奇/偶数中位数、`received` 0 / 1 / ≥2、取整边界、`sent == 0`（§12.3）。
+11. **probe-group/**：`input` = `{ group, results }`；`expected` = `GroupSummary` 或 `null`。覆盖最佳目标选择、同值取先、全组丢失、空组（§12.4）。
+12. **captive-portal/**：`input` = `{ status, body }`；`expected` = `CaptiveState`。覆盖决策表 3 行（§12.5）。
+13. **network-health/**：`input` = `network_health` 的输入；`expected` = `HealthLevel`。覆盖决策表 7 行每一行、阈值恰好相等（不触发）、网关封 ICMP 被剔除（§12.4）。
+14. **throughput/**：`input` = `{ bytes, elapsed_ms }`；`expected` = `{ "mbps": float | null }`（§12.6）。
 
 向量格式示例（`repo-state/diverged.json`）：
 
@@ -608,14 +727,171 @@ porcelain v2 计数规则（精确）：
 
 长休息（每 N 个专注后）、当日 / 历史统计、跨重启恢复、重复提示音（只响一次）、任务清单、多个并行计时器、番茄钟设置界面（改配置文件即可）。
 
-## 12. 构建与分发
+## 12. 网络健康（Network Health）
+
+> 依据 [ADR-014](architecture/adr-014-network-health.md)。展示**本机当前所连网络**的质量：延迟 / 丢包 / 抖动、
+> Captive Portal、Wi-Fi 链路信息，以及手动测速。**测的是"实际路径"**——跟随系统默认路由与系统代理
+> （开着 WireGuard / Clash 时即经隧道/代理后的真实体验）；唯一例外是 Captive Portal 检测（§12.5）。
+> 落地状态：**macOS 先实现，Linux 待跟进**（规格与向量一次写全）。
+
+### 12.1 分层
+
+| 层 | 内容 | 性质 | 测试 |
+|----|------|------|------|
+| 纯逻辑 | `parse_ping`、`probe_stats`、`probe_group_summary`、`classify_captive`、`network_health`、`throughput_mbps` | 确定性纯函数 | **测试向量**（§10.2 第 9–14 类）+ 各端单测 |
+| 采集 | 网关 ping 子进程、HTTP RTT / TCP 握手采样、Captive 请求、测速下载/上传 | 联网 / 子进程，有副作用 | 少量冒烟 |
+| UI 层 | `Network`标签页、触发调度（定时 / 网络切换 / 手动）、链路信息（Wi-Fi / VPN / 代理） | 各端机制不同 | 无向量；对照本节走查 |
+
+结果**只在内存**（最近一轮探测 + 最近一次测速），不写盘、不存历史，重启即空。
+
+### 12.2 配置（`[network]` / `[[network_targets]]`，见 §4）
+
+- `enabled = false`：不显示`Network`标签、不跑任何探测。
+- `probe_interval_secs`：轻量探测的自动间隔，缺省 `60`；`0` = 不定时（仍在启动、网络切换、手动时探测）。
+- `probe_samples`：每个目标每轮采样次数，缺省 `10`，合法 1–50。
+- `probe_timeout_ms`：单次采样超时，缺省 `2000`，合法 100–10000。
+- `speedtest_max_secs` / `speedtest_max_mb`：测速每个方向的时间 / 流量上限，缺省 `8` / `25`，均须 > 0。
+- 测速地址（缺省值见 §4）：`speedtest_domestic_download_url` / `speedtest_domestic_upload_url`（Apple `mensura`）、
+  `speedtest_overseas_download_url` / `speedtest_overseas_upload_url`（Cloudflare）。
+- `[[network_targets]]`：每个探测目标 `{ label, group, method, url | host+port }`：
+  - `group ∈ { "domestic", "overseas", "home" }`；
+  - `method = "http"`（缺省）→ 必填 `url`（http/https）；`method = "tcp"` → 必填 `host` 与 `port`（1–65535）。
+  - **配置文件里一个 `[[network_targets]]` 都没有时**用内置缺省目标（§4 示例中的 5 个）；写了任意一个则完全以配置为准。
+- 非法值（未知 `group` / `method`、缺 `url` / `host` / `port`、越界数值）→ 带字段定位的可读错误，按 §4 既有规则处理。
+
+### 12.3 采样方法与统计口径
+
+**网关（ICMP，子进程，延续 ADR-003）**：
+
+1. 取**物理网络接口**的默认网关（不是 VPN 隧道的）：macOS `ipconfig getoption <iface> router`（`<iface>` = 当前 Wi-Fi 接口，无 Wi-Fi 时取主有线接口）；Linux `ip -4 route show default dev <iface>`。取不到网关 → 网关结果为空（`error = "no gateway"`），不影响其余。
+2. `ping -c <probe_samples> -i 0.2 <gw>`（macOS 加 `-t <总超时秒>`，Linux 加 `-w <总超时秒>`；总超时 = `ceil(probe_samples*0.2 + probe_timeout_ms/1000) + 1`）。
+3. 输出交 `parse_ping` 解析，再交 `probe_stats`。
+
+**远端目标 `method = "http"`（HTTP 往返时延）**：
+
+1. 每个目标用独立会话，**遵循系统代理**（macOS `URLSessionConfiguration.ephemeral`；Linux 读 `HTTPS_PROXY` 等环境变量）、禁用缓存、保持连接复用。
+2. 先发 1 次**预热请求**（不计入样本，用于建连 / TLS 握手）。预热失败 → 该目标 `sent = probe_samples`、全部视为丢失，`error` = 失败原因一行。
+3. 再**顺序**发 `probe_samples` 次 `GET <url>`（头 `Cache-Control: no-cache`）。每个样本 = **请求发出 → 收到响应头**的耗时（macOS `URLSessionTaskMetrics.responseStartDate - requestStartDate`），单位 ms（浮点）。
+4. **任何 HTTP 状态码**（含 404）都算成功——只要收到响应头；超时（`probe_timeout_ms`）/ 连接错误 / TLS 错误 = 丢失。响应体读完即丢弃。
+5. 若服务器不支持 keep-alive，样本会含握手时间——已知偏差，不做修正。
+
+**远端目标 `method = "tcp"`（TCP 握手）**：先解析域名（不计时），再顺序 `probe_samples` 次建立 TCP 连接，样本 = 连接建立耗时（ms），建立后立即关闭；超时 / 拒绝 = 丢失。
+
+**`parse_ping(text) -> { sent, rtts_ms[] }`**（纯函数，`ping-output/` 向量，兼容 macOS 与 Linux iputils 输出）：
+
+- `sent`：匹配 `(\d+) packets transmitted` 的整数。找不到 → `Parse` 错误。
+- `rtts_ms`：按出现顺序，取每一行同时含 `icmp_seq=` 与 `time=<数>`（数可带小数）的那个数；**含 `DUP!` 的行忽略**；`Request timeout` 等行自然不匹配。
+
+**`probe_stats(sent, rtts_ms[]) -> ProbeStats`**（纯函数，`probe-stats/` 向量）：
+
+记 `r1(x) = round_half_away_from_zero(x * 10) / 10`（两端用 IEEE-754 double，Swift `.rounded()` / Rust `f64::round` 均为远离零取整）。
+所有统计先用**未取整**的值算，最后各自 `r1` 一次。`received = len(rtts_ms)`。
+
+| 字段 | 规则 |
+|------|------|
+| `sent` / `received` | 透传 / 计数 |
+| `loss_pct` | `sent > 0`：`r1(max(0, sent - received) * 100.0 / sent)`；`sent == 0`：`100.0` |
+| `rtt_min_ms` / `rtt_max_ms` | `received > 0` 时取最小 / 最大值的 `r1`；否则 `null` |
+| `rtt_median_ms` | `received > 0`：升序排序后取中位数（偶数个取中间两数之和 / 2）再 `r1`；否则 `null` |
+| `jitter_ms` | `received >= 2`：按**原始到达顺序**，`Σ|rtts[i] - rtts[i-1]|`（i 从 1，自左向右累加）`/ (received - 1)` 再 `r1`；否则 `null` |
+
+> 抖动采用"相邻样本差的绝对值均值"（RFC 3550 思路的简化，不做指数平滑），两端必须逐位一致。
+
+### 12.4 分组汇总与健康等级
+
+**`probe_group_summary(group, results[]) -> GroupSummary?`**（纯函数，`probe-group/` 向量）。`results` = 该组各目标的 `{ label, stats }`（按配置顺序）。远端目标的 `stats` **总是非空**——预热失败也记为 `sent = probe_samples, received = 0`（§12.3）：
+
+- 组内没有目标 → 返回 `null`。
+- `sent = Σ stats.sent`，`received = Σ stats.received`，`loss_pct` 按 §12.3 同一公式。
+- **最佳目标** = `received > 0` 中 `rtt_median_ms` 最小者（相等取配置顺序靠前者）；`best_label` / `median_ms` / `jitter_ms` 取自它。无最佳目标 → 三者 `null`。
+
+> 用"最佳目标"的延迟代表一组：一组里某个远端服务器慢，不应把整个网络判差；丢包则全组累计。
+
+**`network_health(input) -> HealthLevel`**（纯函数，`network-health/` 向量，决策表**按序匹配，命中即止**）。
+`input = { path_available: bool, captive: CaptiveState, gateway: ProbeStats?, domestic: GroupSummary?, overseas: GroupSummary? }`。
+
+先算参考指标（规则 5–7 用）：
+- `gw_ok = gateway != null && gateway.received > 0`（网关封 ICMP 时整体剔除，不算丢包）
+- `loss = max(domestic.loss_pct, gw_ok ? gateway.loss_pct : 0)`
+- `jitter = max(domestic.jitter_ms ?? 0, gw_ok ? (gateway.jitter_ms ?? 0) : 0)`
+- `latency = domestic.median_ms`
+
+| 序 | 条件 | HealthLevel |
+|----|------|-------------|
+| 1 | `!path_available` | `Offline` |
+| 2 | `captive == Detected` | `CaptivePortal` |
+| 3 | `domestic`、`overseas` 至少一个非空，且**每个非空的**都 `received == 0` | `NoInternet` |
+| 4 | `domestic == null` 或 `domestic.median_ms == null` | `Unknown` |
+| 5 | `loss > 5.0` 或 `jitter > 50.0` 或 `latency > 150.0` | `Poor` |
+| 6 | `loss > 1.0` 或 `jitter > 20.0` 或 `latency > 60.0` | `Fair` |
+| 7 | 其余 | `Good` |
+
+- 国外组与「家」组**不参与**等级判定（跨境延迟天然高，不代表热点差），只展示。
+- 阈值常量：`POOR_LOSS=5.0`、`POOR_JITTER=50.0`、`POOR_LATENCY=150.0`、`FAIR_LOSS=1.0`、`FAIR_JITTER=20.0`、`FAIR_LATENCY=60.0`（单位 % / ms）。比较均为严格大于。
+- 采样 10 次时丢 1 个即 10% > 5% → `Poor`，这是刻意的：公共 Wi-Fi 上 10% 丢包已明显影响体验。
+
+### 12.5 Captive Portal 检测
+
+- 请求 `http://captive.apple.com/hotspot-detect.html`：**绑定物理接口、不走代理**（§12 开头的唯一例外——未认证热点上隧道建不起来），**不跟随重定向**，超时 5 秒。
+  - 必须**显式指定**物理网卡（macOS：`NWPathMonitor(requiredInterfaceType: .wifi)` 取到的 `NWInterface`，无 Wi-Fi 时取有线），再设为连接的 `requiredInterface`。仅"禁止隧道接口类型"不够：全局 VPN 下系统默认路径只提供 `utun*`，连接会直接报 Network is down。
+- **`classify_captive(status, body) -> CaptiveState`**（纯函数，`captive-portal/` 向量）：
+
+| 序 | 条件 | 结果 |
+|----|------|------|
+| 1 | `status == 200` 且 `body` 含 `Success` | `NotDetected` |
+| 2 | `200 <= status <= 399` | `Detected`（被门户页替换或重定向） |
+| 3 | 其余 | `Unknown` |
+
+- 请求本身失败（超时 / 连接错误）→ 采集层直接给 `Unknown`（不经此函数）。
+
+### 12.6 测速（手动）
+
+- **只由按钮触发**；进行中按钮禁用、显示当前步骤；**期间暂停轻量探测**（定时 / 网络切换触发顺延到测速结束后跑一轮）。
+- 顺序执行 4 步：国内下行 → 国内上行 → 国外下行 → 国外上行。每步独立，失败只记该步 `error`，继续下一步。
+- 走系统代理（实际路径），禁用缓存。
+- **下行**：`GET <download_url>`，流式读取并计数；从**收到第一个响应体字节**开始计时；已读 ≥ `speedtest_max_mb × 1_000_000` 字节或计时达 `speedtest_max_secs` 即取消；`elapsed_ms` = 首字节 → 停止。非 2xx → `error`。
+- **上行**：`POST <upload_url>`，请求体为 `speedtest_max_mb × 1_000_000` 字节**伪随机**数据（避免被代理压缩）；从请求开始计时，计时达上限即取消；`bytes` = 已发送字节数（进度回调），`elapsed_ms` = 开始 → 完成或取消。
+- 速率由 **`throughput_mbps(bytes, elapsed_ms) -> float?`**（纯函数，`throughput/` 向量）算：`bytes <= 0` 或 `elapsed_ms <= 0` → `null`；否则 `r1(bytes * 8.0 / (elapsed_ms * 1000.0))`（Mbps，1 Mb = 10⁶ bit）。
+- 单流测速，跨境高延迟路径可能低估——已知取舍（ADR-014）。
+
+### 12.7 链路信息（UI 层采集，不进向量）
+
+- **路径**：macOS `NWPathMonitor`——`path_available = (status == .satisfied)`；接口类型（Wi-Fi / 有线 / 其他）；**经 VPN** = 默认路径走 `utun*` / `ipsec*` / `ppp*` 接口；**系统代理** = `CFNetworkCopySystemProxySettings` 中 HTTP 或 HTTPS 代理已启用。Linux 待跟进（`ip route`、`nmcli`）。
+- **Wi-Fi**（macOS CoreWLAN `CWWiFiClient.shared().interface()`）：SSID、RSSI（dBm）、噪声（dBm）、信噪比（= RSSI − 噪声）、协商速率（Mbps）、信道与频段（2.4 / 5 / 6 GHz）。
+  - 读 SSID 需**定位权限**：`.app` 的 `Info.plist` 声明 `NSLocationUsageDescription` / `NSLocationWhenInUseUsageDescription`，首次进入`Network`标签时用 `CLLocationManager` 申请。未授权 / 开发态 `swift run` → SSID 显示 `(needs Location permission)`，其余字段照常。
+  - 当前不是 Wi-Fi → Wi-Fi 区显示 `Not connected via Wi-Fi`。
+- RSSI 文案（仅展示）：`≥ -60` `strong`、`-60 ~ -70` `fair`、`-70 ~ -80` `weak`、`< -80` `very weak`。
+
+### 12.8 UI 层职责
+
+1. **标签切换**：主窗口顶部分段控件 `[ Dashboard | Network ]`（§9）。`Dashboard`= 现有全部内容；`Network`= 本节页面。`network.enabled == false` 时不显示分段控件。
+2. **轻量探测的触发**（一轮 = 网关 + 全部目标 + Captive，目标间可并发，同一目标内顺序采样）：
+   - 启动时一轮；之后每 `probe_interval_secs` 一轮（`0` 则不定时）；
+   - 网络切换（`NWPathMonitor` 路径变化，去抖 3 秒）后一轮。macOS 同时监视默认路径与仅 Wi-Fi 路径（全局 VPN 下换热点，默认路径仍只显示 `utun*`），两者都首次回报后才建立基线，避免启动时误触发；
+   - `Re-check`按钮手动一轮。
+   - 一轮进行中再来触发 → **合并**：当前轮结束后若有挂起触发，再跑一轮（最多挂起一个）。测速进行中 → 顺延到测速结束。
+   - 一轮结束后：按 §12.4 先算各组 `GroupSummary`，再算 `HealthLevel`，原子替换内存中的最近结果。
+3. **页面结构**（从上到下）：
+   - **概览**：健康等级徽标（大）+ 与等级一一对应的**固定**说明文案（如 `CaptivePortal` → `Connected to the hotspot, but you must sign in on its web page first`；UI 不自行分析是哪项指标超标——具体数字看延迟表）、路径行（`Wi-Fi "SSID" · via VPN (utun4) · system proxy on`）、最近探测时间、`Re-check`按钮（探测中转圈）。
+   - **Wi-Fi**：§12.7 字段。
+   - **延迟**：表格，按 网关 / 国内 / 国外 / 家 分组；组标题行显示 `GroupSummary`（中位延迟 / 抖动 / 丢包，取最佳目标）；目标行显示 label、方法（ICMP / HTTP / TCP）、中位延迟、抖动、丢包；失败行灰显 + hover 看 `error`。
+   - **测速**：2×2 网格（国内 / 国外 × 下行 / 上行，Mbps）、`Run speed test`按钮、进行中步骤文案、最近测速时间、一行流量提示（`Uses about 50–100 MB per run`）。
+4. **颜色语义与显示名**：`Good` 绿（`Good`）、`Fair` 黄（`Fair`）、`Poor` 红（`Poor`）、`NoInternet` 红（`No internet`）、`CaptivePortal` 橙（`Sign-in required`）、`Offline` 灰（`Offline`）、`Unknown` 灰（`Unknown`）。
+5. **降级**：任一目标 / 网关 / Captive / 测速步骤失败，只影响它自己的格子（§2「单项失败不拖垮整体」）。
+
+### 12.9 网络健康非目标（v1，见 ADR-014）
+
+历史曲线 / 存盘、告警通知、菜单栏 / 托盘上的健康指示、到家测速（v2：HomeLab nginx / iperf3）、
+"热点直连 vs 经隧道"双路径对比、负载下延迟（bufferbloat）、DNS 解析耗时、公网出口 IP / 运营商、多流并发测速、自动测速。
+
+## 13. 构建与分发
 
 - **app-linux**：独立的 Rust 工程，`cargo build`（`build.rs` 编译 `.slint` 文件为生成代码）；产物为可执行文件，配 `.desktop` 入口。测试 `cargo test`（含加载共享测试向量）。
 - **app-macos**：独立的 Swift/Xcode 工程；产物为 `.app`。测试用 XCTest（含加载同一份共享测试向量）。
 - 两端**无任何跨语言构建步骤**（无交叉编译、无 FFI 绑定生成、无 XCFramework）。
 - 改动数据模型或派生规则时：先改 SDD 与测试向量，再让两端各自同步实现（见 ADR-008）。
 
-## 13. 非目标（当前阶段明确不做）
+## 14. 非目标（当前阶段明确不做）
 
 - 不做后端/服务端、不做跨机汇总、不做 Web 端（见 ADR-001 的 Revisit Trigger）。
 - git 写操作只做三个显式的安全同步操作：`pull --ff-only` / `push` / `fetch`（见 §7.5、ADR-011）。**不做** commit / 非 ff 的 merge / rebase / 冲突解决 / stash / `push --force` / 分支切换 / 任何交互式操作——面板不是 git 客户端。
@@ -623,8 +899,9 @@ porcelain v2 计数规则（精确）：
 - 不做多用户、不做鉴权。
 - 不抽取共享二进制 core、不引入 FFI（见 ADR-002）。
 - 番茄钟只做久坐提醒这一个工具，不扩成效率套件：番茄钟自身非目标见 §11.5、ADR-012。
+- 网络健康只看"此刻"：不存历史、不告警、不自动测速、不测到家速率（v1）；完整清单见 §12.9、ADR-014。
 
-## 14. 未来演进预留
+## 15. 未来演进预留
 
 `DashboardSnapshot` 是可序列化结构。若未来需要演进到"Agent 上报 + 中心查看"（ADR-001 方案 B），
 只需在各端采集层之外各加一层上报模块，将快照序列化后 push 到服务端，**UI 与采集逻辑无需改动**。

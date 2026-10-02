@@ -1,0 +1,7 @@
+{
+  "input": {
+    "status": 503,
+    "body": "Service Unavailable"
+  },
+  "expected": "Unknown"
+}

@@ -58,3 +58,52 @@ sound = true
 morning_nudge = true
 # Beijing wall-clock time-of-day ("HH:MM", 24h) after which the morning nudge starts.
 morning_nudge_after = "09:00"
+
+[network]
+# Enable the "Network" tab and its probes (docs/sdd.md §12). false = no tab, no probing.
+enabled = true
+# Light probe (latency / loss / jitter) interval in seconds. 0 = only on startup,
+# network change and manual "re-check".
+probe_interval_secs = 60
+# Samples per target per probe round (1-50).
+probe_samples = 10
+# Per-sample timeout in milliseconds (100-10000).
+probe_timeout_ms = 2000
+# Manual speed test: per-direction caps; whichever is hit first stops that step.
+speedtest_max_secs = 8
+speedtest_max_mb = 25
+speedtest_domestic_download_url = "https://mensura.cdn-apple.com/api/v1/gm/large"
+speedtest_domestic_upload_url = "https://mensura.cdn-apple.com/api/v1/gm/slurp"
+speedtest_overseas_download_url = "https://speed.cloudflare.com/__down?bytes=25000000"
+speedtest_overseas_upload_url = "https://speed.cloudflare.com/__up"
+
+# Probe targets. With no [[network_targets]] at all, these five built-in defaults
+# are used; once you write any, the config list fully replaces the defaults.
+# group: "domestic" | "overseas" | "home"
+# method: "http" (default; needs url) | "tcp" (needs host + port)
+[[network_targets]]
+label = "AliDNS"
+group = "domestic"
+url = "https://223.5.5.5/"
+
+[[network_targets]]
+label = "Baidu"
+group = "domestic"
+url = "https://www.baidu.com/favicon.ico"
+
+[[network_targets]]
+label = "Cloudflare"
+group = "overseas"
+url = "https://1.1.1.1/cdn-cgi/trace"
+
+[[network_targets]]
+label = "GitHub"
+group = "overseas"
+url = "https://github.com/robots.txt"
+
+[[network_targets]]
+label = "Home"
+group = "home"
+method = "tcp"
+host = "home.wiloon.com"
+port = 443

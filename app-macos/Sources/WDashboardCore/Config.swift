@@ -82,6 +82,82 @@ public struct PomodoroConfig: Equatable, Sendable {
     }
 }
 
+/// One `[[network_targets]]` entry (docs/sdd.md §12.2).
+public struct NetworkTarget: Equatable, Sendable {
+    public var label: String
+    /// `.domestic` / `.overseas` / `.home` (never `.gateway`).
+    public var group: ProbeGroup
+    /// `.http` (needs `url`) or `.tcp` (needs `host` + `port`).
+    public var method: ProbeMethod
+    public var url: String?
+    public var host: String?
+    public var port: Int?
+
+    public init(label: String, group: ProbeGroup, method: ProbeMethod, url: String? = nil, host: String? = nil, port: Int? = nil) {
+        self.label = label
+        self.group = group
+        self.method = method
+        self.url = url
+        self.host = host
+        self.port = port
+    }
+
+    /// URL for `.http`, `host:port` for `.tcp`.
+    public var displayTarget: String {
+        method == .tcp ? "\(host ?? ""):\(port ?? 0)" : (url ?? "")
+    }
+}
+
+/// `[network]` section + `[[network_targets]]` (docs/sdd.md §12.2, ADR-014).
+/// Always present; an absent section means the defaults below.
+public struct NetworkConfig: Equatable, Sendable {
+    public var enabled: Bool
+    public var probeIntervalSecs: Int
+    public var probeSamples: Int
+    public var probeTimeoutMs: Int
+    public var speedtestMaxSecs: Int
+    public var speedtestMaxMB: Int
+    public var speedtestDomesticDownloadURL: String
+    public var speedtestDomesticUploadURL: String
+    public var speedtestOverseasDownloadURL: String
+    public var speedtestOverseasUploadURL: String
+    public var targets: [NetworkTarget]
+
+    public init(
+        enabled: Bool = true, probeIntervalSecs: Int = 60, probeSamples: Int = 10, probeTimeoutMs: Int = 2000,
+        speedtestMaxSecs: Int = 8, speedtestMaxMB: Int = 25,
+        speedtestDomesticDownloadURL: String = "https://mensura.cdn-apple.com/api/v1/gm/large",
+        speedtestDomesticUploadURL: String = "https://mensura.cdn-apple.com/api/v1/gm/slurp",
+        speedtestOverseasDownloadURL: String = "https://speed.cloudflare.com/__down?bytes=25000000",
+        speedtestOverseasUploadURL: String = "https://speed.cloudflare.com/__up",
+        targets: [NetworkTarget] = defaultNetworkTargets()
+    ) {
+        self.enabled = enabled
+        self.probeIntervalSecs = probeIntervalSecs
+        self.probeSamples = probeSamples
+        self.probeTimeoutMs = probeTimeoutMs
+        self.speedtestMaxSecs = speedtestMaxSecs
+        self.speedtestMaxMB = speedtestMaxMB
+        self.speedtestDomesticDownloadURL = speedtestDomesticDownloadURL
+        self.speedtestDomesticUploadURL = speedtestDomesticUploadURL
+        self.speedtestOverseasDownloadURL = speedtestOverseasDownloadURL
+        self.speedtestOverseasUploadURL = speedtestOverseasUploadURL
+        self.targets = targets
+    }
+}
+
+/// Built-in probe targets used when the file has no `[[network_targets]]`
+/// (docs/sdd.md §4 / §12.2).
+public func defaultNetworkTargets() -> [NetworkTarget] {
+    [
+        NetworkTarget(label: "AliDNS", group: .domestic, method: .http, url: "https://223.5.5.5/"),
+        NetworkTarget(label: "Baidu", group: .domestic, method: .http, url: "https://www.baidu.com/favicon.ico"),
+        NetworkTarget(label: "Cloudflare", group: .overseas, method: .http, url: "https://1.1.1.1/cdn-cgi/trace"),
+        NetworkTarget(label: "GitHub", group: .overseas, method: .http, url: "https://github.com/robots.txt"),
+        NetworkTarget(label: "Home", group: .home, method: .tcp, host: "home.wiloon.com", port: 443),
+    ]
+}
+
 public struct Config: Equatable, Sendable {
     public var refreshIntervalSecs: Int
     public var commandTimeoutSecs: Int
@@ -90,6 +166,7 @@ public struct Config: Equatable, Sendable {
     public var clocks: [ClockConfig]
     public var weather: WeatherConfig?
     public var pomodoro: PomodoroConfig
+    public var network: NetworkConfig
 
     public init(
         refreshIntervalSecs: Int,
@@ -98,7 +175,8 @@ public struct Config: Equatable, Sendable {
         repos: [RepoConfig],
         clocks: [ClockConfig],
         weather: WeatherConfig?,
-        pomodoro: PomodoroConfig = PomodoroConfig()
+        pomodoro: PomodoroConfig = PomodoroConfig(),
+        network: NetworkConfig = NetworkConfig()
     ) {
         self.refreshIntervalSecs = refreshIntervalSecs
         self.commandTimeoutSecs = commandTimeoutSecs
@@ -107,6 +185,7 @@ public struct Config: Equatable, Sendable {
         self.clocks = clocks
         self.weather = weather
         self.pomodoro = pomodoro
+        self.network = network
     }
 
     public static func defaultConfig() -> Config {
@@ -287,6 +366,7 @@ public func loadConfig(path: String? = nil) throws -> Config {
     }
 
     let pomodoro = try parsePomodoro(doc.pomodoro)
+    let network = try parseNetwork(doc.network, doc.networkTargets)
 
     return Config(
         refreshIntervalSecs: refreshIntervalSecs,
@@ -295,7 +375,8 @@ public func loadConfig(path: String? = nil) throws -> Config {
         repos: repos,
         clocks: clocks,
         weather: weather,
-        pomodoro: pomodoro
+        pomodoro: pomodoro,
+        network: network
     )
 }
 
@@ -332,6 +413,80 @@ private func parsePomodoro(_ raw: [String: TOMLValue]?) throws -> PomodoroConfig
         morningNudge: raw["morning_nudge"]?.boolValue ?? defaults.morningNudge,
         morningNudgeAfterMinutes: try hhmm("morning_nudge_after", defaults.morningNudgeAfterMinutes)
     )
+}
+
+private func parseNetwork(_ raw: [String: TOMLValue]?, _ rawTargets: [[String: TOMLValue]]) throws -> NetworkConfig {
+    let raw = raw ?? [:]
+    let defaults = NetworkConfig()
+
+    func int(_ field: String, _ fallback: Int, _ range: ClosedRange<Int>) throws -> Int {
+        guard let value = raw[field] else { return fallback }
+        guard let n = value.intValue, range.contains(n) else {
+            throw ConfigError.parse("network.\(field): must be an integer in \(range.lowerBound)...\(range.upperBound)")
+        }
+        return n
+    }
+
+    func url(_ field: String, _ fallback: String) throws -> String {
+        guard let value = raw[field] else { return fallback }
+        guard let s = value.stringValue, s.hasPrefix("http://") || s.hasPrefix("https://") else {
+            throw ConfigError.parse("network.\(field): must be an http(s) URL")
+        }
+        return s
+    }
+
+    var targets = defaults.targets
+    if !rawTargets.isEmpty {
+        targets = try rawTargets.enumerated().map { index, t in try parseNetworkTarget(t, index: index) }
+    }
+
+    return NetworkConfig(
+        enabled: raw["enabled"]?.boolValue ?? defaults.enabled,
+        probeIntervalSecs: try int("probe_interval_secs", defaults.probeIntervalSecs, 0...86_400),
+        probeSamples: try int("probe_samples", defaults.probeSamples, 1...50),
+        probeTimeoutMs: try int("probe_timeout_ms", defaults.probeTimeoutMs, 100...10_000),
+        speedtestMaxSecs: try int("speedtest_max_secs", defaults.speedtestMaxSecs, 1...600),
+        speedtestMaxMB: try int("speedtest_max_mb", defaults.speedtestMaxMB, 1...10_000),
+        speedtestDomesticDownloadURL: try url("speedtest_domestic_download_url", defaults.speedtestDomesticDownloadURL),
+        speedtestDomesticUploadURL: try url("speedtest_domestic_upload_url", defaults.speedtestDomesticUploadURL),
+        speedtestOverseasDownloadURL: try url("speedtest_overseas_download_url", defaults.speedtestOverseasDownloadURL),
+        speedtestOverseasUploadURL: try url("speedtest_overseas_upload_url", defaults.speedtestOverseasUploadURL),
+        targets: targets
+    )
+}
+
+private func parseNetworkTarget(_ raw: [String: TOMLValue], index: Int) throws -> NetworkTarget {
+    let at = "network_targets[\(index)]"
+    guard let label = raw["label"]?.stringValue, !label.isEmpty else {
+        throw ConfigError.parse("\(at).label: required")
+    }
+    let groupRaw = raw["group"]?.stringValue ?? ""
+    let group: ProbeGroup
+    switch groupRaw {
+    case "domestic": group = .domestic
+    case "overseas": group = .overseas
+    case "home": group = .home
+    default:
+        throw ConfigError.parse("\(at).group: must be \"domestic\", \"overseas\" or \"home\", got \"\(groupRaw)\"")
+    }
+    let methodRaw = raw["method"]?.stringValue ?? "http"
+    switch methodRaw {
+    case "http":
+        guard let url = raw["url"]?.stringValue, url.hasPrefix("http://") || url.hasPrefix("https://") else {
+            throw ConfigError.parse("\(at).url: method \"http\" requires an http(s) `url`")
+        }
+        return NetworkTarget(label: label, group: group, method: .http, url: url)
+    case "tcp":
+        guard let host = raw["host"]?.stringValue, !host.isEmpty else {
+            throw ConfigError.parse("\(at).host: method \"tcp\" requires `host`")
+        }
+        guard let port = raw["port"]?.intValue, (1...65_535).contains(port) else {
+            throw ConfigError.parse("\(at).port: method \"tcp\" requires `port` in 1...65535")
+        }
+        return NetworkTarget(label: label, group: group, method: .tcp, host: host, port: port)
+    default:
+        throw ConfigError.parse("\(at).method: must be \"http\" or \"tcp\", got \"\(methodRaw)\"")
+    }
 }
 
 private func loadDocumentText(_ path: String) throws -> String {

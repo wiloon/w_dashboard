@@ -1,0 +1,7 @@
+{
+  "input": {
+    "status": 302,
+    "body": ""
+  },
+  "expected": "Detected"
+}

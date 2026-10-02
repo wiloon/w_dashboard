@@ -1,0 +1,34 @@
+{
+  "input": {
+    "path_available": true,
+    "captive": "NotDetected",
+    "gateway": {
+      "sent": 10,
+      "received": 10,
+      "loss_pct": 0.0,
+      "rtt_min_ms": 3.0,
+      "rtt_median_ms": 3.0,
+      "rtt_max_ms": 3.0,
+      "jitter_ms": 1.0
+    },
+    "domestic": {
+      "group": "Domestic",
+      "sent": 100,
+      "received": 99,
+      "loss_pct": 1.0,
+      "best_label": "x",
+      "median_ms": 60.0,
+      "jitter_ms": 20.0
+    },
+    "overseas": {
+      "group": "Overseas",
+      "sent": 20,
+      "received": 20,
+      "loss_pct": 0.0,
+      "best_label": "Cloudflare",
+      "median_ms": 180.0,
+      "jitter_ms": 10.0
+    }
+  },
+  "expected": "Good"
+}

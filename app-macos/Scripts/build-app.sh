@@ -19,5 +19,9 @@ cp "$BIN_PATH/WDashboardApp" "$MACOS_DIR/WDashboard"
 cp Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 cp Resources/WDashboard.icns "$RESOURCES_DIR/WDashboard.icns"
 
+# Ad-hoc sign the whole bundle so Info.plist is bound to it — Location Services
+# (needed to read the Wi-Fi SSID, docs/sdd.md §12.7) keys its permission on that.
+codesign --force --sign - "$APP_DIR"
+
 echo "Built $APP_DIR"
 echo "Run with: open $APP_DIR"

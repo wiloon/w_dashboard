@@ -1,0 +1,9 @@
+{
+  "input": {
+    "text": "PING 10.0.0.1 (10.0.0.1): 56 data bytes\nRequest timeout for icmp_seq 0\nRequest timeout for icmp_seq 1\nRequest timeout for icmp_seq 2\n\n--- 10.0.0.1 ping statistics ---\n3 packets transmitted, 0 packets received, 100.0% packet loss\n"
+  },
+  "expected": {
+    "sent": 3,
+    "rtts_ms": []
+  }
+}

@@ -1,14 +1,31 @@
 import SwiftUI
 
+/// Top-level tabs (docs/sdd.md §9, ADR-014).
+enum MainTab: Hashable {
+    case dashboard
+    case network
+}
+
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var showManageRepos = false
+    @State private var tab: MainTab = .dashboard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("w_dashboard")
                     .font(.system(size: 22, weight: .heavy))
+                Spacer()
+                if appState.config.network.enabled {
+                    Picker("", selection: $tab) {
+                        Text("Dashboard").tag(MainTab.dashboard)
+                        Text("Network").tag(MainTab.network)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
                 Spacer()
             }
 
@@ -18,11 +35,15 @@ struct ContentView: View {
                     .foregroundStyle(.red)
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    NowPanelView()
-                    RepoListView(showManageRepos: $showManageRepos)
-                    WeatherView()
+            if tab == .network && appState.config.network.enabled {
+                NetworkView()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        NowPanelView()
+                        RepoListView(showManageRepos: $showManageRepos)
+                        WeatherView()
+                    }
                 }
             }
         }

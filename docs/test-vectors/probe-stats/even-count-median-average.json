@@ -1,0 +1,20 @@
+{
+  "input": {
+    "sent": 4,
+    "rtts_ms": [
+      20.0,
+      10.0,
+      40.0,
+      30.0
+    ]
+  },
+  "expected": {
+    "sent": 4,
+    "received": 4,
+    "loss_pct": 0.0,
+    "rtt_min_ms": 10.0,
+    "rtt_median_ms": 25.0,
+    "rtt_max_ms": 40.0,
+    "jitter_ms": 16.7
+  }
+}

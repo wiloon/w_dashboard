@@ -1,0 +1,8 @@
+{
+  "input": {
+    "text": "ping: cannot resolve router.invalid: Unknown host\n"
+  },
+  "expected": {
+    "error": "Parse"
+  }
+}

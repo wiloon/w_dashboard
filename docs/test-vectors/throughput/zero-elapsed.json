@@ -1,0 +1,9 @@
+{
+  "input": {
+    "bytes": 1000,
+    "elapsed_ms": 0
+  },
+  "expected": {
+    "mbps": null
+  }
+}

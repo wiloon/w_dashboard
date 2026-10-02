@@ -1,0 +1,40 @@
+{
+  "input": {
+    "group": "Overseas",
+    "results": [
+      {
+        "label": "Cloudflare",
+        "stats": {
+          "sent": 5,
+          "received": 5,
+          "loss_pct": 0.0,
+          "rtt_min_ms": 100.0,
+          "rtt_median_ms": 100.0,
+          "rtt_max_ms": 100.0,
+          "jitter_ms": 0.0
+        }
+      },
+      {
+        "label": "GitHub",
+        "stats": {
+          "sent": 5,
+          "received": 5,
+          "loss_pct": 0.0,
+          "rtt_min_ms": 90.0,
+          "rtt_median_ms": 100.0,
+          "rtt_max_ms": 110.0,
+          "jitter_ms": 7.5
+        }
+      }
+    ]
+  },
+  "expected": {
+    "group": "Overseas",
+    "sent": 10,
+    "received": 10,
+    "loss_pct": 0.0,
+    "best_label": "Cloudflare",
+    "median_ms": 100.0,
+    "jitter_ms": 0.0
+  }
+}
