@@ -1,11 +1,33 @@
 version: '3'
 
 tasks:
+  # The only way to start the app in a dev checkout: picks the native app for the current OS.
   run:
-    desc: Build and run the Linux app (Rust + Slint)
+    desc: Build and run w_dashboard for the current OS (Linux / macOS / Windows)
+    vars:
+      TARGET: '{{if eq OS "windows"}}run:windows{{else if eq OS "darwin"}}run:macos{{else}}run:linux{{end}}'
+    cmds:
+      - task: '{{.TARGET}}'
+
+  run:linux:
+    internal: true
     dir: app-linux
     cmds:
       - cargo run
+
+  # A real .app bundle, so keyboard/menu behavior (e.g. Cmd+V in dialogs) is correct.
+  run:macos:
+    internal: true
+    dir: app-macos
+    cmds:
+      - ./Scripts/build-app.sh
+      - open dist/WDashboard.app
+
+  run:windows:
+    internal: true
+    dir: app-windows
+    cmds:
+      - dotnet run --project src/WDashboard.App
 
   build:
     desc: Build the Linux app
@@ -24,19 +46,6 @@ tasks:
     dir: app-linux/plasmoid
     cmds:
       - kpackagetool6 -t Plasma/Applet -u dev.wdashboard.pomodoroclock || kpackagetool6 -t Plasma/Applet -i dev.wdashboard.pomodoroclock
-
-  macos:dev:
-    desc: Build and run the macOS app via swift run (fast iteration; Cmd+V paste in dialogs may route to Terminal since it's not a real .app bundle)
-    dir: app-macos
-    cmds:
-      - swift run WDashboardApp
-
-  macos:run:
-    desc: Build, package as a real .app bundle, and open it (correct keyboard/menu behavior, e.g. Cmd+V)
-    dir: app-macos
-    cmds:
-      - ./Scripts/build-app.sh
-      - open dist/WDashboard.app
 
   macos:install:
     desc: Build, install WDashboard.app into ~/Applications (Spotlight-searchable) and register a login-item LaunchAgent
@@ -61,3 +70,15 @@ tasks:
     dir: app-macos
     cmds:
       - swift test
+
+  windows:build:
+    desc: Build the Windows solution (Core, App, tests)
+    dir: app-windows
+    cmds:
+      - dotnet build WDashboard.sln
+
+  windows:test:
+    desc: Run app-windows tests (includes docs/test-vectors contract tests; ping-output does not apply)
+    dir: app-windows
+    cmds:
+      - dotnet test tests/WDashboard.Core.Tests

@@ -3,7 +3,7 @@
 > 本文档描述 w_dashboard 的系统设计。架构决策的理由见 [docs/architecture](architecture/)。
 > 本文档定义"做成什么样"，task spec 定义"按什么顺序做"。
 >
-> **本文档是单一事实来源（见 ADR-008）。** Linux 与 macOS 两端独立用各自原生技术实现（见 ADR-002），
+> **本文档是单一事实来源（见 ADR-008）。** Linux、macOS、Windows 各端独立用各自原生技术实现（见 ADR-002、ADR-015），
 > 都必须忠实于本文档的数据模型、逻辑接口、派生规则，并通过同一份测试向量（§10）。
 
 ## 1. 概述
@@ -27,32 +27,31 @@ w_dashboard 是一个**纯本地原生桌面应用**，在每台主机上独立�
 
 ## 2. 架构总览
 
-不存在共享的二进制/库。两端是**两套完整、独立的原生实现**，由同一份规格驱动、由同一份测试向量约束一致。
+不存在共享的二进制/库。各端是**三套完整、独立的原生实现**，由同一份规格驱动、由同一份测试向量约束一致。
 
 ```
-                    ┌───────────────────────────────────────────┐
-                    │                 规格（SSOT）               │
-                    │   ADR + SDD（数据模型/接口/派生规则）       │
-                    │   + docs/test-vectors/（行为契约）          │
-                    └───────────────┬───────────────┬───────────┘
-                       AI 依据规格生成 │               │ AI 依据规格生成
-                    ┌──────────────▼─────┐     ┌─────▼──────────────┐
-                    │     app-linux       │     │     app-macos       │
-                    │    Rust + Slint     │     │   Swift + SwiftUI    │
-                    │  ┌───────────────┐  │     │  ┌───────────────┐  │
-                    │  │ config/git/   │  │     │  │ config/git/   │  │
-                    │  │ chezmoi/      │  │     │  │ chezmoi/      │  │
-                    │  │ weather/model │  │     │  │ weather/model │  │
-                    │  ├───────────────┤  │     │  ├───────────────┤  │
-                    │  │   UI 层       │  │     │  │   UI 层       │  │
-                    │  └───────────────┘  │     │  └───────────────┘  │
-                    └─────────┬───────────┘     └──────────┬──────────┘
-                              │ 子进程 / HTTP              │ 子进程 / HTTP
-                       git / chezmoi / Open-Meteo    git / chezmoi / Open-Meteo
+                         ┌───────────────────────────────────────────┐
+                         │                 规格（SSOT）               │
+                         │   ADR + SDD（数据模型/接口/派生规则）       │
+                         │   + docs/test-vectors/（行为契约）          │
+                         └──────┬──────────────┬──────────────┬──────┘
+                                │   AI 依据规格各自生成         │
+                ┌───────────────▼───┐  ┌───────▼───────────┐  ┌▼──────────────────┐
+                │    app-linux      │  │    app-macos      │  │    app-windows    │
+                │   Rust + Slint    │  │  Swift + SwiftUI  │  │ C# + .NET + WinUI │
+                │ ┌───────────────┐ │  │ ┌───────────────┐ │  │ ┌───────────────┐ │
+                │ │ config/git/   │ │  │ │ config/git/   │ │  │ │ config/git/   │ │
+                │ │ chezmoi/      │ │  │ │ chezmoi/      │ │  │ │ chezmoi/      │ │
+                │ │ weather/model │ │  │ │ weather/model │ │  │ │ weather/model │ │
+                │ ├───────────────┤ │  │ ├───────────────┤ │  │ ├───────────────┤ │
+                │ │   UI 层       │ │  │ │   UI 层       │ │  │ │   UI 层       │ │
+                │ └───────────────┘ │  │ └───────────────┘ │  │ └───────────────┘ │
+                └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘
+                          └──── 子进程 / HTTP：git / chezmoi / Open-Meteo ────┘
 ```
 
 - 每端内部都建议分为**采集层**（config/git/chezmoi/weather/model）与 **UI 层**，两层解耦。番茄钟的纯逻辑（§11）同属核心层——不联网、不调命令，只是确定性状态机。
-- 两端各自用最地道的原生类型与库，不为跨语言一致而妥协（无 FFI、无跨语言构建链）。
+- 各端各自用最地道的原生类型与库，不为跨语言一致而妥协（无 FFI、无跨语言构建链）。
 - 一致性由 §7 的精确派生规则 + §11 的番茄钟规则 + §12 的网络健康规则 + §10 的共享测试向量保证。
 
 ## 3. 仓库目录结构
@@ -63,21 +62,23 @@ w_dashboard/
 │   ├── architecture/        # ADR
 │   ├── sdd.md               # 本文档
 │   ├── task-spec.md         # 实现任务拆解
-│   └── test-vectors/        # 语言无关行为契约（JSON），两端测试共享，见 §10
+│   └── test-vectors/        # 语言无关行为契约（JSON），各端测试共享，见 §10
 │       ├── git-porcelain/   # porcelain 文本 → RepoStatus
 │       ├── repo-state/      # 字段组合 → RepoState
 │       ├── chezmoi-status/  # chezmoi status 文本 → ChezmoiEntry[]
 │       └── weather-json/    # Open-Meteo JSON → WeatherReport
 ├── app-linux/               # Rust + Slint：完整独立实现
 ├── app-macos/               # Swift + SwiftUI：完整独立实现
-└── config.example.toml      # 配置模板（两端共用同一格式）
+├── app-windows/             # C# + .NET 10 + WinUI：完整独立实现（ADR-015）
+└── config.example.toml      # 配置模板（各端共用同一格式）
 ```
 
-各端内部模块划分由各端按语言习惯决定（如 Rust 的 mod、Swift 的文件/类型），但都应体现"采集层 / UI 层"的分层。
+各端内部模块划分由各端按语言习惯决定（如 Rust 的 mod、Swift 的文件/类型、C# 的项目/命名空间），但都应体现"采集层 / UI 层"的分层。
 
 ## 4. 配置 schema
 
-路径：`$XDG_CONFIG_HOME/w_dashboard/config.toml`，回退 `~/.config/w_dashboard/config.toml`（两端一致，macOS 也用 `~/.config/`，见 ADR-004）。
+路径：`$XDG_CONFIG_HOME/w_dashboard/config.toml`，回退 `~/.config/w_dashboard/config.toml`（各端一致，macOS 也用 `~/.config/`，见 ADR-004）。
+Windows 同一规则（ADR-015）：设置了 `XDG_CONFIG_HOME` 环境变量时用 `%XDG_CONFIG_HOME%\w_dashboard\config.toml`，否则 `%USERPROFILE%\.config\w_dashboard\config.toml`；不使用 `%APPDATA%`（便于 chezmoi 跨机统一管理）。
 
 ```toml
 [general]
@@ -184,14 +185,40 @@ host = "home.wiloon.com"
 port = 443
 ```
 
-配置加载规则（两端按同一规格实现）：
+配置加载规则（各端按同一规格实现）：
 - 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"、pomodoro `enabled=true` 且 25/5/true/true）。
 - 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`、`[network]` / `[[network_targets]]` 越界或缺字段，见 §12.2）返回带字段定位的明确错误，UI 展示为可读提示。
-- `~` 与环境变量需统一展开。
+- `~` 与环境变量需统一展开。`~` = 当前用户 home（Windows 为 `%USERPROFILE%`）；环境变量支持 `$VAR` / `${VAR}`，Windows 另支持 `%VAR%`。
+- 配置文件按 UTF-8 读取，兼容 LF 与 CRLF 换行、兼容带 BOM 的文件。
+- **仓库路径的比较**（去重、§4.1 按路径定位、§8.1 种子行按 `path` 匹配）：先展开 `~` / 环境变量再比较字符串。Linux / macOS 按展开后的字符串精确比较；Windows 额外规范化（`/` 统一为 `\`、去掉尾部分隔符）并**不区分大小写**（NTFS 路径默认不区分大小写）。
+
+### 4.1 仓库增删改与配置写回（UI 入口：`Manage repos`）
+
+关注的仓库除手工编辑配置文件外，还可点主窗口 Repos 分区标题行的 `Manage…` 按钮，在 `Manage repos` 对话框里增删改（macOS / Linux 已实现，此处回填为规格）。
+这是本应用**唯一写配置文件**的地方，只动 `[[repos]]` 块。
+
+**对话框**（文案英文）：
+- 标题 `Manage repos`；列出当前配置里的全部仓库（显示名 + 原始 `path`），每行 `Edit` / `Remove`。
+- 表单两个输入框：`Path (e.g. ~/workspace/projects/foo)`、`Display name (optional)`；按钮 `Add`（编辑态为 `Save` / `Cancel`）、`Done`（关闭）。
+- 输入去首尾空白；`path` 为空 → 表单下方红字 `Path cannot be empty`，不写文件；写文件失败 → 红字显示错误信息。
+- 新增 / 修改 / 删除成功后：重新加载配置，并触发一次**整体**仓库刷新（§8.1）。
+
+**写回语义**（文本级编辑，**不**经 TOML 库重新序列化；保证文件其余行——其他段、注释、空行、键顺序——逐字不变）：
+
+| 操作 | 规则 |
+|------|------|
+| `add(path, name?)` | 文件不存在则创建（含父目录）。原文非空且不以换行结尾时先补一个换行，再在**文件末尾**追加 `[[repos]]` / `path = "<path>"` / `name = "<name>"`（`name` 为空则省略该行）。`path` 原样写入用户输入（不展开 `~`） |
+| `remove(target)` | 找到**第一个**展开后路径与 `target` 匹配（按本节上方的路径比较规则）的 `[[repos]]` 块，删除该块从表头行到下一个表头行（或文件末尾）之前的所有行；找不到则文件不变 |
+| `update(target, path, name?)` | 同 `remove` 定位；把该块整体替换为新的 `[[repos]]` / `path` / `name` 三行（`name` 为空则省略）；块内原有的其他键与注释随之丢弃；找不到则文件不变 |
+
+- "块"的识别：去掉行尾注释、去首尾空白后恰为 `[[repos]]` 的行是块头；之后直到下一个以 `[` 开头的行为止都属于该块（含空行与注释行）。
+- 字符串写入时转义 `\` 与 `"`（TOML 基本字符串）。Windows 路径里的 `\` 因此写成 `\\`。
+- 写文件用原子替换（先写临时文件再替换）。Windows 端还须保留原文件的换行风格（原文含 CRLF 则新增行也用 CRLF），避免混合换行。
+- 不做：重复路径检查（重复项照常显示为两行）、`path` 是否存在的校验（不存在的路径会在刷新后显示为 `Error` 行）。
 
 ## 5. 逻辑数据模型（语言无关）
 
-下列类型是**逻辑模型**，两端各自用原生类型表达（Rust struct/enum、Swift struct/enum），字段名可按各语言命名习惯调整，但**语义、可空性、枚举取值必须一致**。
+下列类型是**逻辑模型**，各端各自用原生类型表达（Rust struct/enum、Swift struct/enum、C# record/enum），字段名可按各语言命名习惯调整，但**语义、可空性、枚举取值必须一致**。
 
 > 时间表示：在**测试向量与跨端约定**中统一用 Unix 秒（整数）；各端内部/展示可转换为原生类型（Swift `Date`、Rust `SystemTime`/`chrono`）并本地化。
 
@@ -338,7 +365,7 @@ port = 443
 
 `SpeedTestReport`：`{ started_at: int, finished_at: int?, items: SpeedItem[] }`。链路信息（Wi-Fi / VPN / 代理，§12.7）是 UI 层展示数据，不属于跨端模型。
 
-### 5.8 两端类型示意（同一模型，各自原生）
+### 5.8 各端类型示意（同一模型，各自原生）
 
 ```rust
 // Rust（app-linux）
@@ -377,9 +404,32 @@ struct PomodoroState {
 }
 ```
 
-## 6. 逻辑接口（两端各自实现，非跨语言调用）
+```csharp
+// C#（app-windows）
+public enum RepoState { Clean, Dirty, NeedsPush, NeedsPull, Diverged, NoUpstream, Error }
 
-下列是两端都需实现的**逻辑接口**，用语言无关签名描述。各端用原生语言实现对应函数/方法；**异步与线程调度由各端自行包装**（Rust 用后台线程，Swift 用 `Task`/`DispatchQueue`），不属于本接口的一部分。
+public sealed record RepoStatus(
+    string Name,
+    string? Branch,
+    int Ahead,
+    int Behind,
+    RepoState State
+    // ... 其余字段同 §5.2
+);
+
+public enum PomodoroPhase { Idle, Focus, Break, FocusEnded, BreakEnded }
+
+public sealed record PomodoroState(
+    PomodoroPhase Phase,
+    long? PhaseStartedAt,      // unix 秒
+    int FocusSecs,
+    int BreakSecs
+);
+```
+
+## 6. 逻辑接口（各端各自实现，非跨语言调用）
+
+下列是各端都需实现的**逻辑接口**，用语言无关签名描述。各端用原生语言实现对应函数/方法；**异步与线程调度由各端自行包装**（Rust 用后台线程，Swift 用 `Task`/`DispatchQueue`，C# 用 `Task` + `DispatcherQueue` 回 UI 线程），不属于本接口的一部分。
 
 ```text
 load_config(path?: string) -> Config | ConfigError
@@ -396,6 +446,12 @@ fetch_weather(config: Config) -> WeatherReport | WeatherError
 
 check_environment() -> { git: string?, chezmoi: string? }
     探测 git/chezmoi 是否可用及版本，None/空 表示未找到。
+
+add_repo(config_path: string, raw_path: string, name?: string) -> ok | ConfigError
+remove_repo(config_path: string, target: string) -> ok | ConfigError
+update_repo(config_path: string, target: string, new_raw_path: string, new_name?: string) -> ok | ConfigError
+    按 §4.1 的文本级编辑写回配置文件（只动 [[repos]] 块）。target 为展开后的路径。
+    文本变换部分是纯函数，各端用单测锁定"其余行逐字不变"。
 
 allowed_actions(state: RepoState) -> { pull: bool, push: bool, fetch: bool }
     纯函数：给定仓库汇总状态，返回该显示哪些操作按钮（见 §7.5）。
@@ -483,7 +539,7 @@ porcelain v2 计数规则（精确）：
 
 1. 若配置为地点名，先调 geocoding API 解析经纬度（可内存缓存）。
 2. 调 `forecast` API 取 `current` + `daily`，按 `temperature_unit` / `forecast_days` 组装 `WeatherReport`。
-3. WMO weather code → 文案映射表（两端共享同一映射，见 §10）。
+3. WMO weather code → 文案映射表（各端共享同一映射，见 §10）。
 4. 网络/解析失败 → `Network`/`Parse` 错误，被 `collect_snapshot` 收敛到 `weather_error`。
 
 ### 7.5 仓库同步操作（写，见 ADR-011）
@@ -510,11 +566,11 @@ porcelain v2 计数规则（精确）：
 | `NoUpstream` | ✗ | ✗ | ✓ | 无 upstream，pull/push 无目标 |
 | `Error` | ✗ | ✗ | ✗ | 连是不是 git 工作区都没确认 |
 
-> 该表由 `docs/test-vectors/repo-actions/` 锁定（§10.2），两端按钮显隐必须一致。
+> 该表由 `docs/test-vectors/repo-actions/` 锁定（§10.2），各端按钮显隐必须一致。
 
 > **Fetch 按钮的额外条件**：`allowed_actions.fetch` 表示"该状态下 fetch 是安全操作"，但 **Fetch 按钮仅在 `general.fetch_remote == false` 时才渲染**。`fetch_remote == true`（默认）时，每次刷新（启动 / 手动 / 定时 / 增删改仓库）已按 §7.1 对每个仓库自动 `git fetch --quiet`，独立的手动 Fetch 按钮是冗余的。此条件依赖全局配置而非 `RepoState`，属 UI 渲染规则（见下方执行语义 7），不进测试向量。Pull / Push 按钮不受 `fetch_remote` 影响。
 
-#### 执行语义（UI 层，两端一致）
+#### 执行语义（UI 层，各端一致）
 
 1. **后台执行**：操作在后台线程/队列跑，不阻塞 UI；执行期间该行的操作按钮禁用，显示进行中文案（`Pulling…` / `Pushing…` / `Fetching…`）。
 2. **仅限允许的操作**：UI 只在 `allowed_actions` 为该状态放行时才发起对应操作。
@@ -522,7 +578,7 @@ porcelain v2 计数规则（精确）：
 4. **结果提示**：该行显示一行简短结果——成功用 `GitActionResult.summary`（绿），失败用 `error`（红，git stderr 首行）。放在 **name 那一行的行内**（branch 之后、操作按钮之前），过长省略号截断、hover 看全文——不另起一行，避免行高参差。此提示在**下一次整体刷新**（Refresh 按钮 / 定时 / 增删改仓库）时清除；操作后的定向重采不清除它。
 5. **失败降级**：操作失败只影响该行（延续 §2）；`pull --ff-only` / `push` 失败均无本地副作用，用户可据提示自行到终端处理。网络超时后 push 可能已在远端部分完成，此时步骤 3 的重采会显示真实状态。
 6. **与整体刷新的关系**：单行操作不改变 §8.1 的代际 token；正在整体刷新（`refreshing==true`）时，操作按钮一并禁用。
-7. **Fetch 按钮的渲染条件**：仅当 `general.fetch_remote == false` 时渲染 Fetch 按钮（理由见上方显隐表下的说明）。两端在配置变化后（含启动、配置重载）都要同步这个条件。
+7. **Fetch 按钮的渲染条件**：仅当 `general.fetch_remote == false` 时渲染 Fetch 按钮（理由见上方显隐表下的说明）。各端在配置变化后（含启动、配置重载）都要同步这个条件。
 
 ## 8. 刷新策略（UI 负责）
 
@@ -534,13 +590,13 @@ porcelain v2 计数规则（精确）：
 - **耗时隔离**：所有采集在后台线程/队列执行，避免阻塞 UI；展示"上次刷新时间"与各仓库 `last_fetch_at`，让用户识别数据新鲜度。
 - **增量更新**：仓库列表不等全部采集完再整体替换，而是**每采完一个仓库就更新那一行**，详见 §8.1。
 
-### 8.1 仓库增量刷新契约（两端一致，见 ADR-010）
+### 8.1 仓库增量刷新契约（各端一致，见 ADR-010）
 
-一次**整体**"刷新仓库"（启动 / 顶部手动按钮 / 定时 / 增删改仓库后）按下述语义执行。它是 **UI 层的调度策略**，不改变 §7.1/§7.2 的采集与派生结果，因此不在测试向量（§10）覆盖范围内，但两端必须实现同一套可观察行为：
+一次**整体**"刷新仓库"（启动 / 顶部手动按钮 / 定时 / 增删改仓库后）按下述语义执行。它是 **UI 层的调度策略**，不改变 §7.1/§7.2 的采集与派生结果，因此不在测试向量（§10）覆盖范围内，但各端必须实现同一套可观察行为：
 
 | # | 规则 | 说明 |
 |---|------|------|
-| 1 | **并发上限 4** | 用最多 4 个并发单元采集（Linux：worker 线程池；macOS：`OperationQueue`）。上限同时约束线程数、并发 git 子进程数与同时对外的 fetch 连接数 |
+| 1 | **并发上限 4** | 用最多 4 个并发单元采集（Linux：worker 线程池；macOS：`OperationQueue`；Windows：`Task` + `SemaphoreSlim(4)`）。上限同时约束线程数、并发 git 子进程数与同时对外的 fetch 连接数 |
 | 2 | **行序稳定** | 刷新开始时先按**配置顺序**建好全部行，结果按行索引回填；行的顺序与完成先后无关 |
 | 3 | **种子行** | 建行时沿用上一轮同 `path` 的数据（新增仓库用空占位），避免列表闪空；`name` 按最新配置刷新 |
 | 4 | **"采集中"徽标** | 尚未出结果的行，状态徽标显示中性的"采集中"（灰，见 §9），不显示上一轮的旧状态结论 |
@@ -564,27 +620,85 @@ porcelain v2 计数规则（精确）：
 - 单行手动刷新会**清除该行上一次的操作结果提示**（§7.5 步骤 4 的行内提示）——它是用户对该行状态的一次主动重置；§7.5 的自动重采则保留该提示。
 - 单行采集**不**更新"整体刷新中"（`refreshing`）状态，但**会**更新 `last_updated`。
 
-## 9. UI 设计要点（两端一致的信息架构）
+## 9. UI 设计要点（各端一致的信息架构）
 
-**UI 语言**：两端所有用户可见文案一律**英文**（AGENTS.md 核心约束 8）。本文档用中文撰写，但其中出现的 UI 文案以英文原文为准。
+**UI 语言**：各端所有用户可见文案一律**英文**（AGENTS.md 核心约束 8）。本文档用中文撰写，但其中出现的 UI 文案以英文原文为准。
 
 **顶部标签切换**：主窗口标题行放分段控件 `[ Dashboard | Network ]`（ADR-014）。`Dashboard`即下述四个分区；`Network`页见 §12.8。`network.enabled == false` 时不显示分段控件，窗口只有 `Dashboard`。
 
-`Dashboard`的**信息条目 5 项**（§1 概述 1–5），呈现为**四个视觉分区**，**从上到下**依次如下（顺序两端一致；布局细节可各端适配）：
+`Dashboard`的**信息条目 5 项**（§1 概述 1–5），呈现为**四个视觉分区**，**从上到下**依次如下（顺序各端一致；布局细节可各端适配）：
 
 1. **当下（Now）**（置顶）：一张卡，左半**番茄钟**、右半**时钟**——都是"瞬时状态"（见 [ADR-013](architecture/adr-013-now-panel-merge.md)）。
    - **番茄钟子区域**：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、**环形进度环**（进度 = §11.2 的 `progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase；`*Ended` 整环填满并变色）；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时番茄钟子区域隐藏，卡片退化为纯时钟。详见 §11。番茄钟放在最上面是因为它是唯一需要主动操作的部分，其余都是只读监视；`*Ended` 高亮边框与早晨提醒的琥珀提示**只作用于番茄钟子区域**，不波及右半时钟。
    - **时钟子区域**：每个配置时区一列（label + 当前时间），实时更新。日期可省略或缩为小字 / hover 查看。
-   - **落地状态**：macOS 已按此合并（ADR-013）；**Linux Slint 主窗口待跟进**——在跟进前可保留"番茄钟单行置顶 + 时钟单独卡"，只要信息顺序不变（§9 允许布局各端适配）。KDE plasmoid（`app-linux/plasmoid/`）是面板小组件、对应 macOS 菜单栏项，已把北京时钟 + phase 并在一起，不受本条影响。
-2. **Repos**：列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在 name 那一行**同行内**显示一行结果（成功绿 / 失败红，过长则省略号截断、hover 看全文），不另占纵向空间以免行高参差；结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
+   - **落地状态**：macOS 已按此合并（ADR-013），Windows 按此实现（ADR-015）；**Linux Slint 主窗口待跟进**——在跟进前可保留"番茄钟单行置顶 + 时钟单独卡"，只要信息顺序不变（§9 允许布局各端适配）。KDE plasmoid（`app-linux/plasmoid/`）是面板小组件、对应 macOS 菜单栏项，已把北京时钟 + phase 并在一起，不受本条影响。
+2. **Repos**：分区标题行有 `Manage…`（打开 §4.1 的 `Manage repos` 对话框）与整体 `Refresh` 按钮。列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在 name 那一行**同行内**显示一行结果（成功绿 / 失败红，过长则省略号截断、hover 看全文），不另占纵向空间以免行高参差；结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
 3. **chezmoi**：源仓库同步徽标 + 待应用差异列表；未启用则隐藏或灰显。
 4. **Weather**：当前天气 + 未来 N 日预报（图标来自 WMO code 映射）；失败显示降级文案与上次时间。
 
-颜色语义（两端一致）：绿=Clean、黄=NeedsPush/NeedsPull/Dirty、红=Diverged/Error、灰=NoUpstream/未配置/采集中（§8.1）；番茄钟 `FocusEnded` 用红、`BreakEnded` 用橙（§11.4）。
+颜色语义（各端一致）：绿=Clean、黄=NeedsPush/NeedsPull/Dirty、红=Diverged/Error、灰=NoUpstream/未配置/采集中（§8.1）；番茄钟 `FocusEnded` 用红、`BreakEnded` 用橙（§11.4）。
 
-## 10. 行为契约与测试向量（保证两端一致的核心机制）
+### 9.1 常驻图标与主窗口生命周期
 
-由于两端是独立实现（ADR-002），一致性不靠"同一份编译产物"，而靠**共享的测试向量**：用纯数据定义一组 `输入 → 期望输出`，**两端各自的测试都读同一份向量、必须得到同一结果**。
+应用启动后在系统托盘 / 菜单栏放一个**常驻图标**（macOS `NSStatusItem`、Linux StatusNotifierItem、Windows 通知区域图标），
+只要进程在运行就一直存在，**与 `pomodoro.enabled` 无关**（番茄钟关闭时它只是不再随 phase 变化）。
+
+**通用行为**：
+- **单击（Windows 为左键单击）唤起主窗口**：窗口已最小化则还原，已隐藏则重新显示，然后置于前台。
+- **图标状态**随番茄钟 phase / 早晨提醒变化，规则见 §11.4 步骤 3 与步骤 8。
+- **北京时间**：常驻图标展示北京时间（`Asia/Shanghai`，24 小时制 `HH:mm`），在分钟翻转时更新，与 `[[clocks]]` 配置无关。各端展示位置不同：
+
+| 端 | 北京时间展示 | 番茄钟状态文字 |
+|----|--------------|----------------|
+| macOS | 菜单栏项直接画「图标 + `HH:mm`」一张图（`*Ended` / 早晨提醒时整张图一起着色闪烁） | 无（看图标颜色） |
+| Windows | 托盘图标只有 16×16，放不下文字，**只显示图标**；北京时间放 tooltip 第一行 | tooltip 第二行 |
+| Linux | StatusNotifierItem 不显示时间（北京时间由 KDE plasmoid 面板小组件显示） | SNI title / tooltip |
+
+- **Windows tooltip 文案**（两行；`pomodoro.enabled == false` 时只有第一行）：
+  - 第一行：`w_dashboard · Beijing HH:mm`
+  - 第二行（与 Linux SNI 文案一致，Focus / Break 追加剩余时间）：
+
+    | 状态 | 文案 |
+    |------|------|
+    | `Idle` | `Pomodoro: idle` |
+    | `Idle` 且早晨提醒生效 | `Pomodoro: start your first focus` |
+    | `Focus` | `Pomodoro: focusing · mm:ss left` |
+    | `Break` | `Pomodoro: break · mm:ss left` |
+    | `FocusEnded` | `Pomodoro: focus done — take a break` |
+    | `BreakEnded` | `Pomodoro: break over — back to focus` |
+
+  tooltip 文本只在内容变化时更新（`Focus` / `Break` 期间每秒变化一次）。
+
+**右键菜单**：
+- Linux：`Start focus` / `Start break` / `Stop`（`Stop` 在 `Idle` 时禁用），触发对应 `PomodoroEvent`。
+- Windows：`Start focus` / `Start break` / `Stop` / 分隔线 / `Exit`。`Stop` 在 `Idle` 时禁用；`pomodoro.enabled == false` 时只有 `Exit`。`Exit` 真正退出进程。
+- macOS：当前无菜单（单击即唤起窗口），可后续补齐。
+- 通过菜单触发的 `StartFocus` 与面板按钮等价（含更新早晨提醒的"当天已开过专注"，§11.4 步骤 8）。
+
+**主窗口生命周期**：
+- 关闭主窗口**不退出应用**：番茄钟计时、托盘闪烁、定时刷新、网络探测继续运行；通过常驻图标再次唤起。
+  - macOS：关闭最后一个窗口不终止应用，菜单栏项保留。
+  - Windows：点标题栏关闭按钮 = **隐藏窗口到托盘**（不销毁窗口与状态，任务栏按钮随之消失）；只有托盘菜单 `Exit` 才退出。
+- **单实例**（Windows）：已有实例在运行时再次启动 → 激活已有实例的主窗口，新进程立即退出。macOS 由系统保证单实例。
+- 退出时（`Exit` / 系统注销）：停止所有定时器、移除托盘图标；进行中的子进程不等待，随进程结束。
+
+### 9.2 安装与开机自启
+
+各端提供脚本化安装（无 GUI 步骤），把应用装到用户级目录、让系统启动器能搜到，并在**登录时自动启动**；配套卸载脚本还原：
+
+| 端 | 安装位置 | 启动器可搜 | 开机自启 | 脚本 |
+|----|----------|-----------|----------|------|
+| macOS | `~/Applications/WDashboard.app` | Spotlight（`mdimport` 立即建索引） | `~/Library/LaunchAgents/dev.wdashboard.app.plist`（`RunAtLoad`，`KeepAlive=false`） | `app-macos/Scripts/install-macos.sh` / `uninstall-macos.sh` |
+| Windows | `%LOCALAPPDATA%\Programs\WDashboard\`（自包含发布目录） | 开始菜单快捷方式 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\WDashboard.lnk` | 注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 值 `WDashboard` = exe 路径 | `app-windows/Scripts/install-windows.ps1` / `uninstall-windows.ps1` |
+| Linux | `.desktop` 入口（task-spec T2.12） | 桌面环境应用菜单 | 待定 | — |
+
+- 安装脚本可重复执行（覆盖旧版本）。Windows 运行中的 exe 文件被锁定，安装 / 卸载前须先结束正在运行的 `WDashboard` 进程。
+- 自启只在用户登录时拉起一次；用户主动退出后不自动重启。
+- 卸载：删除自启项、快捷方式 / 启动器入口与安装目录；**不删除用户配置文件**。
+
+## 10. 行为契约与测试向量（保证各端一致的核心机制）
+
+由于各端是独立实现（ADR-002），一致性不靠"同一份编译产物"，而靠**共享的测试向量**：用纯数据定义一组 `输入 → 期望输出`，**各端各自的测试都读同一份向量、必须得到同一结果**。
 
 ### 10.1 分层与边界
 
@@ -601,13 +715,13 @@ porcelain v2 计数规则（精确）：
 
 1. **git-porcelain/**：`input` = 一段 `git status --porcelain=v2 --branch` 原始文本；`expected` = 解析出的 `RepoStatus`（branch/upstream/ahead/behind/各计数）。
 2. **repo-state/**：`input` = 字段组合（ahead/behind/各计数/has_upstream/error）；`expected` = 派生的 `RepoState`。须覆盖 §7.2 决策表每一行及边界。
-3. **repo-actions/**：`input` = 一个 `RepoState` 名（字符串）；`expected` = `{ pull, push, fetch }` 三个布尔。须覆盖 §7.5 显隐表每一行（7 个状态）。锁定两端操作按钮显隐一致。
+3. **repo-actions/**：`input` = 一个 `RepoState` 名（字符串）；`expected` = `{ pull, push, fetch }` 三个布尔。须覆盖 §7.5 显隐表每一行（7 个状态）。锁定各端操作按钮显隐一致。
 4. **chezmoi-status/**：`input` = `chezmoi status` 文本；`expected` = `ChezmoiEntry[]`。
 5. **weather-json/**：`input` = Open-Meteo `forecast` 返回 JSON（含正常、缺字段、空 daily 等用例）；`expected` = `WeatherReport`（含降级表现）。
-6. **wmo-codes**：weather_code → 文案 的完整映射表（两端共同引用，避免文案分叉）。
-7. **pomodoro/**：`input` = `{ phase, phase_started_at, focus_secs, break_secs, now }`；`expected` = `PomodoroView`。须覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。锁定 `pomodoro_view` 两端一致（§11.2）。
-8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值（规则 6）上下边界。锁定 `pomodoro_reduce` 两端一致。
-9. **ping-output/**：`input` = `{ "text": <ping 原始输出> }`；`expected` = `{ sent, rtts_ms }` 或 `{ "error": "Parse" }`。覆盖 macOS 与 Linux iputils 格式、部分丢包、全丢、`DUP!`、无统计行（§12.3）。
+6. **wmo-codes**：weather_code → 文案 的完整映射表（各端共同引用，避免文案分叉）。
+7. **pomodoro/**：`input` = `{ phase, phase_started_at, focus_secs, break_secs, now }`；`expected` = `PomodoroView`。须覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。锁定 `pomodoro_view` 各端一致（§11.2）。
+8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值（规则 6）上下边界。锁定 `pomodoro_reduce` 各端一致。
+9. **ping-output/**：`input` = `{ "text": <ping 原始输出> }`；`expected` = `{ sent, rtts_ms }` 或 `{ "error": "Parse" }`。覆盖 macOS 与 Linux iputils 格式、部分丢包、全丢、`DUP!`、无统计行（§12.3）。**Windows 端不适用**：Windows 用 `Ping` API 直接取 RTT、不解析文本（ADR-015），因此不实现 `parse_ping`、不跑本类向量。
 10. **probe-stats/**：`input` = `{ sent, rtts_ms }`；`expected` = `ProbeStats`。覆盖奇/偶数中位数、`received` 0 / 1 / ≥2、取整边界、`sent == 0`（§12.3）。
 11. **probe-group/**：`input` = `{ group, results }`；`expected` = `GroupSummary` 或 `null`。覆盖最佳目标选择、同值取先、全组丢失、空组（§12.4）。
 12. **captive-portal/**：`input` = `{ status, body }`；`expected` = `CaptiveState`。覆盖决策表 3 行（§12.5）。
@@ -627,8 +741,8 @@ porcelain v2 计数规则（精确）：
 ### 10.3 一致性流程
 
 - 任何影响行为的规格变更，**必须同步新增/更新测试向量**（见 ADR-008 工作流）。
-- 两端 CI 都加载 `docs/test-vectors/` 并断言 `parse(input) == expected` / `derive(input) == expected`。
-- 向量是两端一致性的**客观闸门**：两端只要都过向量，即视为行为一致。
+- 各端 CI 都加载 `docs/test-vectors/`（Windows 除 `ping-output/` 外）并断言 `parse(input) == expected` / `derive(input) == expected`。
+- 向量是各端一致性的**客观闸门**：各端只要都过向量，即视为行为一致。
 
 ## 11. 番茄钟（Pomodoro）
 
@@ -640,7 +754,7 @@ porcelain v2 计数规则（精确）：
 | 层 | 内容 | 性质 | 测试 |
 |----|------|------|------|
 | 纯逻辑 | `pomodoro_view`（状态 → 展示数据）、`pomodoro_reduce`（状态迁移） | 确定性纯函数 | **测试向量**（§10.2 的 `pomodoro/` 与 `pomodoro-transition/`）+ 各端单测 |
-| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音、早晨提醒（§11.4 第 8 项） | 有副作用、各端机制不同 | 无向量；两端对照本节可观察行为走查 |
+| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音、早晨提醒（§11.4 第 8 项） | 有副作用、各端机制不同 | 无向量；各端对照本节可观察行为走查 |
 
 数据模型见 §5.6。番茄钟状态是**内存中唯一的一份 `PomodoroState`**，不写盘，应用重启后回到 `Idle`（ADR-012：符合 ADR-001「无数据库」）。
 
@@ -658,7 +772,7 @@ porcelain v2 计数规则（精确）：
 
 - `phase_started_at` 为空时（只可能在 `Idle`）所有数值字段取 0。
 - `elapsed_raw = now - phase_started_at`，可能为负（`now` 早于开始时刻，正常不会发生）——`remaining` 的 `max` 与 `progress` 的 `clamp` 已兜住，`elapsed_secs` 直接透传。
-- `progress` 是浮点：分子分母都是整数秒，先转浮点再相除（`elapsed_raw as f64 / focus_secs as f64`），两端结果按 IEEE-754 double 必须逐位一致。
+- `progress` 是浮点：分子分母都是整数秒，先转浮点再相除（`elapsed_raw as f64 / focus_secs as f64`），各端结果按 IEEE-754 double 必须逐位一致。
 - 显示层把 `remaining_secs` / `overtime_secs` 格式化为 `mm:ss`；派生层只给整数秒。
 
 ### 11.3 `pomodoro_reduce(state, event, now)` 迁移规则（按序匹配，命中即止）
@@ -683,16 +797,16 @@ porcelain v2 计数规则（精确）：
 - `*Ended` 在未达自动收工阈值前是终态，只由用户显式 `StartFocus` / `StartBreak` / `Stop` 退出——不自动切到下一段（ADR-012：手动 + 持续提醒）。
 - "确认"没有独立事件：用户点面板任一按钮即产生对应的 `Start*` / `Stop`，UI 据此停止提醒（§11.4 步骤 5）。
 
-### 11.4 UI 层职责（两端各自实现，不进向量）
+### 11.4 UI 层职责（各端各自实现，不进向量）
 
-1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
-2. **面板**（§9 置顶「当下」卡片的番茄钟子区域，见 ADR-013）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、**环形进度环**（进度取 `pomodoro_view.progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase，`*Ended` 整环填满并变色）、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。`*Ended` 高亮边框、早晨提醒的琥珀提示只包住这个子区域，不波及同卡右半的时钟。环形进度环是纯展示、无逻辑、不进向量（同 ADR-006 时钟由各端 UI 自绘）。macOS 已按此实现；Linux（Slint 主窗口 + plasmoid）待跟进，跟进前可用横向进度条 + 独立分区。
+1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` / WinUI `DispatcherQueueTimer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
+2. **面板**（§9 置顶「当下」卡片的番茄钟子区域，见 ADR-013）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、**环形进度环**（进度取 `pomodoro_view.progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase，`*Ended` 整环填满并变色）、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。`*Ended` 高亮边框、早晨提醒的琥珀提示只包住这个子区域，不波及同卡右半的时钟。环形进度环是纯展示、无逻辑、不进向量（同 ADR-006 时钟由各端 UI 自绘）。macOS 已按此实现，Windows 照此实现；Linux（Slint 主窗口 + plasmoid）待跟进，跟进前可用横向进度条 + 独立分区。
 3. **托盘 / 菜单栏图标状态机**（由 `phase` / `alerting` 驱动）：
 
    | phase | 图标 |
    |-------|------|
-   | `Idle` | 中性图标（Linux：暗灰圆点；macOS：保留现有 `square.grid.2x2`），菜单仍可开始 |
-   | `Focus` / `Break` | 常态图标（Linux：绿/蓝圆点；macOS：`timer` 模板符号），tooltip 显示阶段 |
+   | `Idle` | 中性图标（Linux：暗灰圆点；macOS：保留现有 `square.grid.2x2`；Windows：应用图标），菜单仍可开始 |
+   | `Focus` / `Break` | 常态图标（Linux：绿/蓝圆点；macOS：`timer` 模板符号；Windows：计时器图标，跟随任务栏深 / 浅色），tooltip 显示阶段 |
    | `FocusEnded` | **闪烁**：UI 定时器 ~1.5 Hz 在「红色」与「暗/透明」间切换图标 |
    | `BreakEnded` | **闪烁**：同上，用「橙色」 |
 
@@ -700,14 +814,15 @@ porcelain v2 计数规则（精确）：
 
    - Linux：StatusNotifierItem，`ksni` crate（独立 D-Bus 线程），提供右键菜单项（开始专注 / 开始休息 / 停止）触发对应事件。图标为代码生成的 ARGB32 色块（v1；后续可换成 ADR-012 的番茄剪影 PNG）。
    - macOS：切换 `NSStatusItem.button.image`（`timer` SF Symbol，`*Ended` 用 `paletteColors` 上红/橙非模板色）；进入 `*Ended` 叠加 `NSApp.requestUserAttention(.criticalRequest)` 让 Dock 图标跳动，确认时 `cancelUserAttentionRequest`。
-   - 番茄剪影图标资产（未来）：`app-linux/ui/icons/tray/`、`app-macos/Resources/`（设计见 ADR-012「图标设计」）。
+   - Windows：`H.NotifyIcon.WinUI`（`Shell_NotifyIcon`）。图标为预制 `.ico`（含 16 / 20 / 24 / 32 px，适配不同 DPI）：应用图标、计时器图标（深 / 浅两套）、红 / 橙 / 琥珀三色亮帧与对应暗帧；闪烁 = UI 定时器切换图标。进入 `*Ended` 时若主窗口当前有任务栏按钮（可见或最小化），叠加 `FlashWindowEx(FLASHW_ALL | FLASHW_TIMERNOFG)` 让任务栏按钮闪烁（对应 macOS Dock 跳动）；窗口已隐藏到托盘时只闪托盘。确认时 `FlashWindowEx(FLASHW_STOP)`。右键菜单与 tooltip 见 §9.1。
+   - 番茄剪影图标资产（未来）：`app-linux/ui/icons/tray/`、`app-macos/Resources/`、`app-windows/src/WDashboard.App/Assets/Tray/`（设计见 ADR-012「图标设计」）。
 4. **进入 `*Ended` 的那一刻（每次只触发一次，用 phase 边沿判断，不在每个 tick 重复）**：
-   - `notify == true` → 一条系统通知。macOS `osascript -e 'display notification …'` 子进程（不需打包/授权，也延续 ADR-003 "shell out"）；Linux `notify-send` 子进程。文案：专注结束「该起来活动一下了」/ 休息结束「可以开始专注了」。
-   - `sound == true` **且进入的是 `FocusEnded`** → 播一次提示音。macOS `NSSound(named: "Glass")`；Linux `canberra-gtk-play -i complete` 或 `paplay …/complete.oga` 子进程。**`BreakEnded` 不响提示音**——休息结束的提醒比专注结束弱一档（ADR-012 问答确认）：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，不响。
+   - `notify == true` → 一条系统通知。macOS `osascript -e 'display notification …'` 子进程（不需打包/授权，也延续 ADR-003 "shell out"）；Linux `notify-send` 子进程；Windows App SDK `AppNotificationManager`（不打包模式，启动时 `Register()` 一次）。标题 `w_dashboard`；正文：专注结束 `Focus session done — time to get up and move.` / 休息结束 `Break's over — ready to focus?`（与 macOS / Linux 现有文案一致）。
+   - `sound == true` **且进入的是 `FocusEnded`** → 播一次提示音。macOS `NSSound(named: "Glass")`；Linux `canberra-gtk-play -i complete` 或 `paplay …/complete.oga` 子进程；Windows `PlaySound` 播系统声音别名 `SystemNotification`（异步）。**`BreakEnded` 不响提示音**——休息结束的提醒比专注结束弱一档（ADR-012 问答确认）：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，不响。
    - 子进程 / 通知失败 **静默降级**（延续 SDD §2、AGENTS.md：单项失败不拖垮整体）。
-5. **确认**（用户点任意 `开始…` / `停止`，或规则 6 自动收工）：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`。
+5. **确认**（用户点任意 `Start …` / `Stop`，或规则 6 自动收工）：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`（macOS）/ `FlashWindowEx(FLASHW_STOP)`（Windows）。
 6. **无 SNI host 兜底（Linux）**：启动时检测不到 `org.kde.StatusNotifierWatcher` 时，`*Ended` 态改为——面板内大号高亮横幅 + 窗口标题加前缀 `⏰`；其余行为不变。
-7. **配置加载**：两端目前都**没有配置文件热重载**（`[pomodoro]` 只在启动时读一次；改了番茄钟设置需重启，重启本就回 `Idle`，与"状态不持久化"一致）。**若**将来加了热重载，按下述规则处理，且这几条都属 UI 层、不进向量：
+7. **配置加载**：各端目前都**没有配置文件热重载**（`[pomodoro]` 只在启动时读一次；改了番茄钟设置需重启，重启本就回 `Idle`，与"状态不持久化"一致）。**若**将来加了热重载，按下述规则处理，且这几条都属 UI 层、不进向量：
    - `pomodoro.enabled` 由 `true` 变 `false`：立即对 state 施加 `Stop`（回 `Idle`）、隐藏该分区、注销托盘图标状态；由 `false` 变 `true`：显示分区、注册托盘、state 为 `Idle`。
    - `focus_minutes` / `break_minutes` 变化：仅当 `phase == Idle` 时把新值写回 `state.focus_secs` / `state.break_secs`；非 `Idle` 时不动，等回到 `Idle` 再写（配合 §11.3「时长冻结」——`state` 里冻结的那份才是权威）。
    - `notify` / `sound` 变化：下一次进入 `*Ended` 时按新值执行。
@@ -719,7 +834,7 @@ porcelain v2 计数规则（精确）：
      3. 当天（北京日历日，`Asia/Shanghai`）还没有 `StartFocus` 事件发生过；
      4. 北京墙上时刻 ≥ `pomodoro.morning_nudge_after`（`"HH:MM"`，缺省 `09:00`）。
    - **不分工作日 / 周末**——每天都提醒（作者确认）。
-   - **提醒方式**：托盘 / 菜单栏图标以 `*Ended` 同频（~1.5 Hz）闪烁，颜色为**琥珀色**（`#F5A623`，与 `*Ended` 的红/橙区分开）；窗口标题（Linux）加 `⏰` 前缀。**不发系统通知、不响提示音**——比 `*Ended` 弱一档，只闪图标（用户原始诉求）。macOS 不叠加 Dock 跳动。
+   - **提醒方式**：托盘 / 菜单栏图标以 `*Ended` 同频（~1.5 Hz）闪烁，颜色为**琥珀色**（`#F5A623`，与 `*Ended` 的红/橙区分开）；窗口标题（Linux）加 `⏰` 前缀。**不发系统通知、不响提示音**——比 `*Ended` 弱一档，只闪图标（用户原始诉求）。macOS 不叠加 Dock 跳动，Windows 不闪任务栏按钮。
    - **`*Ended` 优先**：真进入 `*Ended` 说明当天已开过时段，判据 3 自然不再成立；万一并存，`*Ended` 的红/橙闪烁压过早晨提醒。
    - **状态**：只记「最近一次 `StartFocus` 的北京日历日」一份内存值，`StartFocus` 时写入（面板主按钮或托盘菜单皆可触发）。**不持久化**——重启后该值清空，提醒会重新出现（与"番茄钟状态不跨重启"一致，ADR-012）。
 
@@ -732,7 +847,7 @@ porcelain v2 计数规则（精确）：
 > 依据 [ADR-014](architecture/adr-014-network-health.md)。展示**本机当前所连网络**的质量：延迟 / 丢包 / 抖动、
 > Captive Portal、Wi-Fi 链路信息，以及手动测速。**测的是"实际路径"**——跟随系统默认路由与系统代理
 > （开着 WireGuard / Clash 时即经隧道/代理后的真实体验）；唯一例外是 Captive Portal 检测（§12.5）。
-> 落地状态：**macOS 先实现，Linux 待跟进**（规格与向量一次写全）。
+> 落地状态：**macOS 先实现，Windows 随 M11 实现，Linux 待跟进**（规格与向量一次写全）。
 
 ### 12.1 分层
 
@@ -763,15 +878,20 @@ porcelain v2 计数规则（精确）：
 
 **网关（ICMP，子进程，延续 ADR-003）**：
 
-1. 取**物理网络接口**的默认网关（不是 VPN 隧道的）：macOS `ipconfig getoption <iface> router`（`<iface>` = 当前 Wi-Fi 接口，无 Wi-Fi 时取主有线接口）；Linux `ip -4 route show default dev <iface>`。取不到网关 → 网关结果为空（`error = "no gateway"`），不影响其余。
+1. 取**物理网络接口**的默认网关（不是 VPN 隧道的）：macOS `ipconfig getoption <iface> router`（`<iface>` = 当前 Wi-Fi 接口，无 Wi-Fi 时取主有线接口）；Linux `ip -4 route show default dev <iface>`；Windows 取处于 `Up` 状态的 Wi-Fi 适配器（无则取有线以太网适配器）的 `NetworkInterface.GetIPProperties().GatewayAddresses` 中第一个 IPv4 地址。取不到网关 → 网关结果为空（`error = "no gateway"`），不影响其余。
 2. `ping -c <probe_samples> -i 0.2 <gw>`（macOS 加 `-t <总超时秒>`，Linux 加 `-w <总超时秒>`；总超时 = `ceil(probe_samples*0.2 + probe_timeout_ms/1000) + 1`）。
 3. 输出交 `parse_ping` 解析，再交 `probe_stats`。
 
+**Windows 的网关采样**（ADR-015，替代上面第 2–3 步）：`ping.exe` 的输出随系统语言本地化，不做文本解析。改用
+`System.Net.NetworkInformation.Ping` 顺序发 `probe_samples` 次 ICMP Echo，相邻两次间隔 200 ms，单次超时 `probe_timeout_ms`；
+`sent = probe_samples`，`rtts_ms` = 各次 `Status == Success` 的 `RoundtripTime`（按发送顺序），直接交 `probe_stats`。
+`RoundtripTime` 是整数毫秒（小于 1 ms 为 0），精度低于另两端——已知平台差异，不做修正。
+
 **远端目标 `method = "http"`（HTTP 往返时延）**：
 
-1. 每个目标用独立会话，**遵循系统代理**（macOS `URLSessionConfiguration.ephemeral`；Linux 读 `HTTPS_PROXY` 等环境变量）、禁用缓存、保持连接复用。
+1. 每个目标用独立会话，**遵循系统代理**（macOS `URLSessionConfiguration.ephemeral`；Linux 读 `HTTPS_PROXY` 等环境变量；Windows 每目标一个 `HttpClient`，用 `HttpClient.DefaultProxy`——即当前用户的系统代理设置）、禁用缓存、保持连接复用。
 2. 先发 1 次**预热请求**（不计入样本，用于建连 / TLS 握手）。预热失败 → 该目标 `sent = probe_samples`、全部视为丢失，`error` = 失败原因一行。
-3. 再**顺序**发 `probe_samples` 次 `GET <url>`（头 `Cache-Control: no-cache`）。每个样本 = **请求发出 → 收到响应头**的耗时（macOS `URLSessionTaskMetrics.responseStartDate - requestStartDate`），单位 ms（浮点）。
+3. 再**顺序**发 `probe_samples` 次 `GET <url>`（头 `Cache-Control: no-cache`）。每个样本 = **请求发出 → 收到响应头**的耗时（macOS `URLSessionTaskMetrics.responseStartDate - requestStartDate`；Windows 用 `HttpCompletionOption.ResponseHeadersRead` 发请求，`Stopwatch` 从调用发送到返回响应头），单位 ms（浮点）。
 4. **任何 HTTP 状态码**（含 404）都算成功——只要收到响应头；超时（`probe_timeout_ms`）/ 连接错误 / TLS 错误 = 丢失。响应体读完即丢弃。
 5. 若服务器不支持 keep-alive，样本会含握手时间——已知偏差，不做修正。
 
@@ -784,7 +904,7 @@ porcelain v2 计数规则（精确）：
 
 **`probe_stats(sent, rtts_ms[]) -> ProbeStats`**（纯函数，`probe-stats/` 向量）：
 
-记 `r1(x) = round_half_away_from_zero(x * 10) / 10`（两端用 IEEE-754 double，Swift `.rounded()` / Rust `f64::round` 均为远离零取整）。
+记 `r1(x) = round_half_away_from_zero(x * 10) / 10`（各端用 IEEE-754 double，Swift `.rounded()` / Rust `f64::round` 均为远离零取整；**C# 必须写 `Math.Round(x * 10, MidpointRounding.AwayFromZero) / 10`**——`Math.Round` 缺省是银行家舍入，会与另两端分叉）。
 所有统计先用**未取整**的值算，最后各自 `r1` 一次。`received = len(rtts_ms)`。
 
 | 字段 | 规则 |
@@ -795,7 +915,7 @@ porcelain v2 计数规则（精确）：
 | `rtt_median_ms` | `received > 0`：升序排序后取中位数（偶数个取中间两数之和 / 2）再 `r1`；否则 `null` |
 | `jitter_ms` | `received >= 2`：按**原始到达顺序**，`Σ|rtts[i] - rtts[i-1]|`（i 从 1，自左向右累加）`/ (received - 1)` 再 `r1`；否则 `null` |
 
-> 抖动采用"相邻样本差的绝对值均值"（RFC 3550 思路的简化，不做指数平滑），两端必须逐位一致。
+> 抖动采用"相邻样本差的绝对值均值"（RFC 3550 思路的简化，不做指数平滑），各端必须逐位一致。
 
 ### 12.4 分组汇总与健康等级
 
@@ -834,6 +954,8 @@ porcelain v2 计数规则（精确）：
 
 - 请求 `http://captive.apple.com/hotspot-detect.html`：**绑定物理接口、不走代理**（§12 开头的唯一例外——未认证热点上隧道建不起来），**不跟随重定向**，超时 5 秒。
   - 必须**显式指定**物理网卡（macOS：`NWPathMonitor(requiredInterfaceType: .wifi)` 取到的 `NWInterface`，无 Wi-Fi 时取有线），再设为连接的 `requiredInterface`。仅"禁止隧道接口类型"不够：全局 VPN 下系统默认路径只提供 `utun*`，连接会直接报 Network is down。
+  - Windows：`HttpClient` 设 `UseProxy = false`、`AllowAutoRedirect = false`；`SocketsHttpHandler.ConnectCallback` 里对 socket 设 `IP_UNICAST_IF`（值为物理网卡的 IPv4 接口索引，网络字节序），强制从 Wi-Fi（无则有线）网卡发出，不走 WireGuard / Clash TUN 等隧道适配器。目标地址与另两端相同（`captive.apple.com`），`classify_captive` 与向量不变。
+    已知限制：WireGuard for Windows 全局隧道开启 kill-switch（"Block untunneled traffic"）时，系统防火墙会拒绝一切不走隧道的连接，绑定物理网卡的请求在 `connect` 时被拒（`WSAEACCES`），Captive 结果为 `Unknown`；同理网关 ICMP 全部丢失，按 §12.4 `gw_ok = false` 被剔除，不影响健康等级。
 - **`classify_captive(status, body) -> CaptiveState`**（纯函数，`captive-portal/` 向量）：
 
 | 序 | 条件 | 结果 |
@@ -857,9 +979,12 @@ porcelain v2 计数规则（精确）：
 ### 12.7 链路信息（UI 层采集，不进向量）
 
 - **路径**：macOS `NWPathMonitor`——`path_available = (status == .satisfied)`；接口类型（Wi-Fi / 有线 / 其他）；**经 VPN** = 默认路径走 `utun*` / `ipsec*` / `ppp*` 接口；**系统代理** = `CFNetworkCopySystemProxySettings` 中 HTTP 或 HTTPS 代理已启用。Linux 待跟进（`ip route`、`nmcli`）。
+  - Windows：`path_available` = 存在 `Up` 状态、非环回、有 IPv4 默认网关的适配器；**默认路由接口** = 去往公网地址（如 `1.1.1.1`）时系统选中的接口（`GetBestInterfaceEx`）；接口类型取其 `NetworkInterfaceType`（`Wireless80211` → Wi-Fi，`Ethernet` → 有线，其余 → 其他）；**经 VPN** = 默认路由接口类型为 `Ppp` / `Tunnel`，或适配器描述含 `WireGuard` / `Wintun` / `TAP`；**系统代理** = 当前用户 WinINET 设置（`WinHttpGetIEProxyConfigForCurrentUser`）里启用了手动代理或 PAC 脚本。
 - **Wi-Fi**（macOS CoreWLAN `CWWiFiClient.shared().interface()`）：SSID、RSSI（dBm）、噪声（dBm）、信噪比（= RSSI − 噪声）、协商速率（Mbps）、信道与频段（2.4 / 5 / 6 GHz）。
   - 读 SSID 需**定位权限**：`.app` 的 `Info.plist` 声明 `NSLocationUsageDescription` / `NSLocationWhenInUseUsageDescription`，首次进入`Network`标签时用 `CLLocationManager` 申请。未授权 / 开发态 `swift run` → SSID 显示 `(needs Location permission)`，其余字段照常。
   - 当前不是 Wi-Fi → Wi-Fi 区显示 `Not connected via Wi-Fi`。
+  - **Windows**（Native WLAN API `wlanapi.dll`）：`WlanQueryInterface(wlan_intf_opcode_current_connection)` 取 SSID 与协商速率（`ulRxRate` / `ulTxRate`，kbps → Mbps）；`wlan_intf_opcode_rssi` 取 RSSI（dBm）；信道 / 频段由 `WlanGetNetworkBssList` 中当前 BSSID 的中心频率换算。**WLAN API 不提供噪声**，噪声与信噪比显示 `—`。
+    Windows 11 24H2 起读 SSID 需要用户在"设置 → 隐私和安全性 → 位置"里允许桌面应用访问位置；未授权时 WLAN 调用返回拒绝访问，SSID 显示 `(needs Location permission)`，拿不到的其余字段显示 `—`。应用不自行请求授权（是否弹系统提示由 Windows 决定），`Network`页在该提示旁给一个 `Open location settings` 链接（`ms-settings:privacy-location`），由用户去设置里打开。
 - RSSI 文案（仅展示）：`≥ -60` `strong`、`-60 ~ -70` `fair`、`-70 ~ -80` `weak`、`< -80` `very weak`。
 
 ### 12.8 UI 层职责
@@ -867,12 +992,12 @@ porcelain v2 计数规则（精确）：
 1. **标签切换**：主窗口顶部分段控件 `[ Dashboard | Network ]`（§9）。`Dashboard`= 现有全部内容；`Network`= 本节页面。`network.enabled == false` 时不显示分段控件。
 2. **轻量探测的触发**（一轮 = 网关 + 全部目标 + Captive，目标间可并发，同一目标内顺序采样）：
    - 启动时一轮；之后每 `probe_interval_secs` 一轮（`0` 则不定时）；
-   - 网络切换（`NWPathMonitor` 路径变化，去抖 3 秒）后一轮。macOS 同时监视默认路径与仅 Wi-Fi 路径（全局 VPN 下换热点，默认路径仍只显示 `utun*`），两者都首次回报后才建立基线，避免启动时误触发；
+   - 网络切换（`NWPathMonitor` 路径变化，去抖 3 秒）后一轮。macOS 同时监视默认路径与仅 Wi-Fi 路径（全局 VPN 下换热点，默认路径仍只显示 `utun*`），两者都首次回报后才建立基线，避免启动时误触发。Windows 监听 `NetworkChange.NetworkAddressChanged` 与 `NetworkAvailabilityChanged`，同样去抖 3 秒；判据为"默认路由接口或物理网卡的网关 / SSID 与基线不同"，启动时先记录基线，避免误触发；
    - `Re-check`按钮手动一轮。
    - 一轮进行中再来触发 → **合并**：当前轮结束后若有挂起触发，再跑一轮（最多挂起一个）。测速进行中 → 顺延到测速结束。
    - 一轮结束后：按 §12.4 先算各组 `GroupSummary`，再算 `HealthLevel`，原子替换内存中的最近结果。
 3. **页面结构**（从上到下）：
-   - **概览**：健康等级徽标（大）+ 与等级一一对应的**固定**说明文案（如 `CaptivePortal` → `Connected to the hotspot, but you must sign in on its web page first`；UI 不自行分析是哪项指标超标——具体数字看延迟表）、路径行（`Wi-Fi "SSID" · via VPN (utun4) · system proxy on`）、最近探测时间、`Re-check`按钮（探测中转圈）。
+   - **概览**：健康等级徽标（大）+ 与等级一一对应的**固定**说明文案（如 `CaptivePortal` → `Connected to the hotspot, but you must sign in on its web page first`；UI 不自行分析是哪项指标超标——具体数字看延迟表）、路径行（`Wi-Fi "SSID" · via VPN (utun4) · system proxy on`；Windows 括号里是 VPN 适配器名，如 `via VPN (wg0)`）、最近探测时间、`Re-check`按钮（探测中转圈）。
    - **Wi-Fi**：§12.7 字段。
    - **延迟**：表格，按 网关 / 国内 / 国外 / 家 分组；组标题行显示 `GroupSummary`（中位延迟 / 抖动 / 丢包，取最佳目标）；目标行显示 label、方法（ICMP / HTTP / TCP）、中位延迟、抖动、丢包；失败行灰显 + hover 看 `error`。
    - **测速**：2×2 网格（国内 / 国外 × 下行 / 上行，Mbps）、`Run speed test`按钮、进行中步骤文案、最近测速时间、一行流量提示（`Uses about 50–100 MB per run`）。
@@ -887,9 +1012,10 @@ porcelain v2 计数规则（精确）：
 ## 13. 构建与分发
 
 - **app-linux**：独立的 Rust 工程，`cargo build`（`build.rs` 编译 `.slint` 文件为生成代码）；产物为可执行文件，配 `.desktop` 入口。测试 `cargo test`（含加载共享测试向量）。
-- **app-macos**：独立的 Swift/Xcode 工程；产物为 `.app`。测试用 XCTest（含加载同一份共享测试向量）。
-- 两端**无任何跨语言构建步骤**（无交叉编译、无 FFI 绑定生成、无 XCFramework）。
-- 改动数据模型或派生规则时：先改 SDD 与测试向量，再让两端各自同步实现（见 ADR-008）。
+- **app-macos**：独立的 Swift/Xcode 工程；产物为 `.app`。测试用 XCTest（含加载同一份共享测试向量）。安装与开机自启见 §9.2。
+- **app-windows**：独立的 .NET 解决方案（`app-windows/WDashboard.sln`，ADR-015）：`WDashboard.Core`（`net10.0` 类库，无 UI 依赖）+ `WDashboard.App`（WinUI 可执行项目）+ `WDashboard.Core.Tests`（xUnit，加载同一份共享测试向量，`ping-output/` 除外）。构建 `dotnet build`，测试 `dotnet test`。发布为**不打包**（unpackaged）的自包含目录：`dotnet publish -c Release -r win-x64 --self-contained`，并设 `WindowsAppSDKSelfContained=true`，目标机无需另装 .NET 或 Windows App SDK 运行时。最低系统 Windows 11。安装与开机自启见 §9.2。
+- 各端**无任何跨语言构建步骤**（无交叉编译、无 FFI 绑定生成、无 XCFramework）。
+- 改动数据模型或派生规则时：先改 SDD 与测试向量，再让各端各自同步实现（见 ADR-008）。
 
 ## 14. 非目标（当前阶段明确不做）
 

@@ -20,12 +20,16 @@ _Avoid_: 数据层, backend, service
 主窗口最顶的一张卡，把番茄钟（左）与时钟（右）两类"瞬时状态"合在一起（ADR-013、SDD §9）。macOS 已合并；Linux Slint 主窗口待跟进（KDE plasmoid 是面板小组件、不受影响）。
 _Avoid_: 状态栏, status bar, header
 
+**常驻图标**：
+应用在系统托盘 / 菜单栏上的那个图标（macOS 菜单栏项、Linux StatusNotifierItem、Windows 通知区域图标）。点击唤起主窗口，并随番茄钟阶段变色 / 闪烁；macOS 直接显示北京时间，Windows 把北京时间放在 tooltip（SDD §9.1）。主窗口关闭后应用仍靠它常驻。
+_Avoid_: 托盘程序, widget（"widget"指 KDE plasmoid 面板小组件）
+
 **Snapshot**（`DashboardSnapshot`）：
 一次刷新采到的本机全部数据（各仓库状态 + chezmoi + 天气 + 时钟配置）。是可序列化结构。
 _Avoid_: dump, report
 
 **Test vector（测试向量）**：
-`docs/test-vectors/` 下一条 `{ input, expected }` 纯数据记录。两端各自的测试都读同一份、必须得到同一结果——是两端一致性的客观闸门。
+`docs/test-vectors/` 下一条 `{ input, expected }` 纯数据记录。各端（Linux / macOS / Windows）各自的测试都读同一份、必须得到同一结果——是各端一致性的客观闸门。
 _Avoid_: fixture, 用例
 
 **Derive（派生）**：
@@ -34,7 +38,7 @@ _Avoid_: fixture, 用例
 ### Git 面板
 
 **Watched repo（关注的仓库）**：
-配置里 `[[repos]]` 显式声明路径、由应用跟踪同步状态的一个 git 工作区。
+配置里 `[[repos]]` 显式声明路径、由应用跟踪同步状态的一个 git 工作区。可在 `Manage repos` 界面增删改，改动以文本级编辑写回配置文件、保留其余内容与注释（SDD §4.1）。
 _Avoid_: project, tracked repo
 
 **RepoState**：

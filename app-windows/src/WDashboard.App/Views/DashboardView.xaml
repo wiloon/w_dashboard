@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="WDashboard.App.Views.DashboardView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:WDashboard.App.ViewModels"
+    x:DefaultBindMode="OneWay">
+
+    <ScrollViewer Padding="16,0,16,16" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16">
+
+            <!--  Now card: pomodoro | clocks (§9, ADR-013)  -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Orientation="Horizontal" Spacing="24">
+                    <Border
+                        Padding="10"
+                        BorderBrush="{x:Bind ViewModel.Pomodoro.BorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Visibility="{x:Bind ViewModel.Pomodoro.Enabled, Mode=OneTime}">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <Grid Width="76" Height="76">
+                                <ProgressRing
+                                    Width="76"
+                                    Height="76"
+                                    Background="{ThemeResource ControlStrongStrokeColorDisabledBrush}"
+                                    Foreground="{x:Bind ViewModel.Pomodoro.AccentBrush}"
+                                    IsIndeterminate="False"
+                                    Maximum="100"
+                                    Value="{x:Bind ViewModel.Pomodoro.ProgressPercent}" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontFamily="Consolas"
+                                    FontSize="18"
+                                    Foreground="{x:Bind ViewModel.Pomodoro.LabelBrush}"
+                                    Text="{x:Bind ViewModel.Pomodoro.TimeLabel}" />
+                            </Grid>
+                            <StackPanel VerticalAlignment="Center" Spacing="10">
+                                <TextBlock
+                                    FontWeight="SemiBold"
+                                    Foreground="{x:Bind ViewModel.Pomodoro.LabelBrush}"
+                                    Style="{StaticResource BodyStrongTextBlockStyle}"
+                                    Text="{x:Bind ViewModel.Pomodoro.PhaseLabel}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Background="{x:Bind ViewModel.Pomodoro.PrimaryButtonBrush}"
+                                        Command="{x:Bind ViewModel.Pomodoro.PrimaryCommand}"
+                                        Content="{x:Bind ViewModel.Pomodoro.PrimaryLabel}"
+                                        Style="{StaticResource AccentButtonStyle}" />
+                                    <Button
+                                        Command="{x:Bind ViewModel.Pomodoro.StopPomodoroCommand}"
+                                        Content="Stop"
+                                        IsEnabled="{x:Bind ViewModel.Pomodoro.CanStop}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Rectangle
+                        Width="1"
+                        Height="76"
+                        Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                        Visibility="{x:Bind ViewModel.Pomodoro.Enabled, Mode=OneTime}" />
+                    <ItemsControl VerticalAlignment="Center" ItemsSource="{x:Bind ViewModel.Clocks.Rows, Mode=OneTime}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="20" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ClockRow">
+                                <StackPanel Spacing="2" ToolTipService.ToolTip="{x:Bind Date, Mode=OneWay}">
+                                    <TextBlock
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Style="{StaticResource CaptionTextBlockStyle}"
+                                        Text="{x:Bind Label}" />
+                                    <TextBlock
+                                        FontFamily="Consolas"
+                                        FontSize="22"
+                                        Text="{x:Bind Time, Mode=OneWay}" />
+                                    <TextBlock
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                        Text="{x:Bind Date, Mode=OneWay}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!--  Repos card (§9 item 2, §7.5, §8.1)  -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            Style="{StaticResource BodyStrongTextBlockStyle}"
+                            Text="Repos" />
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}">
+                            <Run Text="Last updated:" />
+                            <Run Text="{x:Bind ViewModel.Repos.LastUpdated}" />
+                        </TextBlock>
+                        <HyperlinkButton
+                            Grid.Column="2"
+                            Click="OnManageClick"
+                            Content="Manage…" />
+                        <Button
+                            Grid.Column="3"
+                            Command="{x:Bind ViewModel.Repos.RefreshCommand}"
+                            IsEnabled="{x:Bind ViewModel.Repos.CanRefresh}">
+                            <Grid>
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Spacing="6"
+                                    Visibility="{x:Bind ViewModel.Repos.CanRefresh}">
+                                    <FontIcon FontSize="14" Glyph="&#xE72C;" />
+                                    <TextBlock Text="Refresh" />
+                                </StackPanel>
+                                <ProgressRing
+                                    Width="16"
+                                    Height="16"
+                                    IsActive="{x:Bind ViewModel.Repos.Refreshing}" />
+                            </Grid>
+                        </Button>
+                    </Grid>
+
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="No repos configured"
+                        Visibility="{x:Bind ViewModel.Repos.IsEmpty}" />
+
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.Repos.Rows, Mode=OneTime}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:RepoRowViewModel">
+                                <StackPanel
+                                    Padding="0,6"
+                                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                    BorderThickness="0,0,0,1"
+                                    Spacing="4">
+                                    <Grid ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind Name, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind Branch, Mode=OneWay}" />
+                                        <TextBlock
+                                            Grid.Column="2"
+                                            Margin="4,0,8,0"
+                                            VerticalAlignment="Center"
+                                            Foreground="{x:Bind ResultBrush, Mode=OneWay}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind ResultText, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="NoWrap"
+                                            ToolTipService.ToolTip="{x:Bind ResultText, Mode=OneWay}"
+                                            Visibility="{x:Bind HasResult, Mode=OneWay}" />
+                                        <StackPanel
+                                            Grid.Column="3"
+                                            Orientation="Horizontal"
+                                            Spacing="4">
+                                            <Button
+                                                Command="{x:Bind PullCommand}"
+                                                Content="{x:Bind PullLabel, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ActionsEnabled, Mode=OneWay}"
+                                                Style="{StaticResource SmallButtonStyle}"
+                                                Visibility="{x:Bind ShowPull, Mode=OneWay}" />
+                                            <Button
+                                                Command="{x:Bind PushCommand}"
+                                                Content="{x:Bind PushLabel, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ActionsEnabled, Mode=OneWay}"
+                                                Style="{StaticResource SmallButtonStyle}"
+                                                Visibility="{x:Bind ShowPush, Mode=OneWay}" />
+                                            <Button
+                                                Command="{x:Bind FetchCommand}"
+                                                Content="{x:Bind FetchLabel, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ActionsEnabled, Mode=OneWay}"
+                                                Style="{StaticResource SmallButtonStyle}"
+                                                Visibility="{x:Bind ShowFetch, Mode=OneWay}" />
+                                        </StackPanel>
+                                        <Border
+                                            Grid.Column="4"
+                                            Padding="8,2"
+                                            VerticalAlignment="Center"
+                                            Background="{x:Bind BadgeBrush, Mode=OneWay}"
+                                            CornerRadius="10">
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="White"
+                                                Text="{x:Bind BadgeText, Mode=OneWay}" />
+                                        </Border>
+                                        <HyperlinkButton
+                                            Grid.Column="5"
+                                            Padding="4,2"
+                                            Command="{x:Bind ToggleExpandedCommand}"
+                                            Content="{x:Bind DetailsLabel, Mode=OneWay}"
+                                            FontSize="12" />
+                                        <Button
+                                            Grid.Column="6"
+                                            Padding="6,4"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Command="{x:Bind RefreshRowCommand}"
+                                            IsEnabled="{x:Bind ActionsEnabled, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Refresh this repo"
+                                            Visibility="{x:Bind ShowRowRefresh, Mode=OneWay}">
+                                            <Grid>
+                                                <FontIcon
+                                                    FontSize="14"
+                                                    Glyph="&#xE895;"
+                                                    Opacity="{x:Bind RefreshIconOpacity, Mode=OneWay}" />
+                                                <ProgressRing
+                                                    Width="14"
+                                                    Height="14"
+                                                    IsActive="{x:Bind RowRefreshing, Mode=OneWay}" />
+                                            </Grid>
+                                        </Button>
+                                    </Grid>
+                                    <StackPanel Spacing="2" Visibility="{x:Bind Expanded, Mode=OneWay}">
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind Details, Mode=OneWay}" />
+                                        <TextBlock
+                                            Foreground="{StaticResource ErrorBrush}"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Text="{x:Bind ErrorText, Mode=OneWay}"
+                                            TextWrapping="Wrap"
+                                            Visibility="{x:Bind HasError, Mode=OneWay}" />
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                            Text="{x:Bind LastFetchText, Mode=OneWay}"
+                                            Visibility="{x:Bind HasLastFetch, Mode=OneWay}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!--  Weather card (§9 item 4)  -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Weather" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Not configured"
+                        Visibility="{x:Bind ViewModel.Weather.NotConfigured}" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Loading…"
+                        Visibility="{x:Bind ViewModel.Weather.ShowLoading}" />
+                    <TextBlock
+                        Foreground="{StaticResource ErrorBrush}"
+                        Text="{x:Bind ViewModel.Weather.Error}"
+                        TextWrapping="Wrap"
+                        Visibility="{x:Bind ViewModel.Weather.ShowStandaloneError}" />
+                    <Grid ColumnSpacing="24" Visibility="{x:Bind ViewModel.Weather.HasReport}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel MaxWidth="260" Spacing="2">
+                            <TextBlock FontWeight="SemiBold" Text="{x:Bind ViewModel.Weather.Location}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock FontSize="32" Text="{x:Bind ViewModel.Weather.CurrentIcon}" />
+                                <TextBlock
+                                    FontSize="32"
+                                    FontWeight="SemiBold"
+                                    Text="{x:Bind ViewModel.Weather.CurrentTemp}" />
+                            </StackPanel>
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.Weather.CurrentDescription}" />
+                            <TextBlock
+                                Foreground="{StaticResource ErrorBrush}"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Text="{x:Bind ViewModel.Weather.Error}"
+                                TextWrapping="Wrap"
+                                Visibility="{x:Bind ViewModel.Weather.HasError}" />
+                        </StackPanel>
+                        <ScrollViewer
+                            Grid.Column="1"
+                            HorizontalScrollBarVisibility="Auto"
+                            HorizontalScrollMode="Enabled"
+                            VerticalScrollBarVisibility="Disabled"
+                            VerticalScrollMode="Disabled">
+                            <ItemsControl ItemsSource="{x:Bind ViewModel.Weather.Days, Mode=OneTime}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="12" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:WeatherDayRow">
+                                        <StackPanel Width="92" x:DefaultBindMode="OneTime" Spacing="4">
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="11"
+                                                Text="{x:Bind Date}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="20"
+                                                Text="{x:Bind Icon}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                MaxLines="2"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                Text="{x:Bind Description}"
+                                                TextAlignment="Center"
+                                                TextWrapping="Wrap" />
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Text="{x:Bind Max}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind Min}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="11"
+                                                Foreground="{StaticResource PrecipBrush}"
+                                                Text="{x:Bind Precip}"
+                                                Visibility="{x:Bind HasPrecip}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

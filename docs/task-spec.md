@@ -2,10 +2,12 @@
 
 > 本文档把 [SDD](sdd.md) 拆解为可独立交付、可验收的任务，供分阶段实现（由 AI 依据规格生成各平台代码）。
 >
-> 顺序原则（见 ADR-002 / ADR-008）：**先把规格与测试向量做扎实，再让两端各自原生实现并行展开**；
-> 每端内部先做"采集层并通过共享测试向量"，再做 UI。两端不共享代码，靠同一份测试向量保证一致。
+> 顺序原则（见 ADR-002 / ADR-008）：**先把规格与测试向量做扎实，再让各端各自原生实现并行展开**；
+> 每端内部先做"采集层并通过共享测试向量"，再做 UI。各端不共享代码，靠同一份测试向量保证一致。
 >
-> M0–M4 是初始交付的里程碑；此后每一次影响行为或体验的变更，同样按"先改 ADR/SDD，再两端实现"追加为新的里程碑（M5 起）。
+> M0–M4 是初始交付的里程碑；此后每一次影响行为或体验的变更，同样按"先改 ADR/SDD，再各端实现"追加为新的里程碑（M5 起）。
+> M2–M10 写于只有 Linux / macOS 两端的阶段，其中的"两端"保持原样作为历史记录；M11 起新增 Windows 端（ADR-015），
+> 之后的行为变更里程碑须覆盖三端。
 
 ## 里程碑总览
 
@@ -22,8 +24,9 @@
 | M8 | 番茄钟：面板 + 闪烁托盘/菜单栏图标 | M2, M3 |
 | M9 | 顶部「当下（Now）」区：番茄钟 + 时钟合并 / 环形进度（macOS 先落地，Linux 待跟进） | M8 |
 | M10 | 网络健康：延迟 / 丢包 / 抖动 / Captive / Wi-Fi 信息 + 手动测速（macOS 先落地，Linux 待跟进） | M3 |
+| M11 | app-windows（C# + .NET 10 + WinUI）：对齐 macOS 当前功能的完整实现 | M1, M5–M10 的规格 |
 
-> **M2 与 M3 可并行**（都只依赖 M1）。两端各自独立实现全部逻辑与 UI，互不依赖。
+> **M2、M3、M11 可并行**（都只依赖 M1 与对应规格）。各端各自独立实现全部逻辑与 UI，互不依赖。
 
 ---
 
@@ -280,13 +283,58 @@
 
 ---
 
+## M11 — app-windows（C# + .NET 10 + WinUI）
+
+> 依据 [ADR-015](architecture/adr-015-windows-winui.md)。完整独立实现；与另两端无代码共享，仅共享 `docs/test-vectors/` 与规格。
+> **范围 = macOS 当前功能**：「当下」卡片（番茄钟 + 时钟）、Repos（含 `Manage…` 增删改、Pull / Push / Fetch、单行刷新）、Weather、
+> `Network`标签页、常驻托盘图标。chezmoi 面板与另两端一样暂缓。
+
+- **T11.1** 规格先行（✅）：写 ADR-015；ADR-002 加"后续：扩为三端"；SDD §2/§3 加 `app-windows`、§4 Windows 配置路径与路径比较规则、新增 §4.1 仓库增删改与配置写回（回填 macOS / Linux 已有行为）、§5.8 C# 类型示意、§6 加 `add_repo` / `remove_repo` / `update_repo`、新增 §9.1 常驻图标与主窗口生命周期、§9.2 安装与开机自启（回填 macOS 已有行为）、§10.2 注明 `ping-output/` 不适用于 Windows、§11.4 Windows 托盘 / 任务栏闪烁 / 通知 / 提示音（并把通知文案改为与实现一致的英文）、§12.3 Windows 网关采样与 C# 取整写法、§12.5 / §12.7 / §12.8 Windows 机制、§13 构建与分发；全仓库"两端"改为"各端"（`AGENTS.md`、SDD、`CONTEXT.md`、`.cursor/rules/`、ADR 索引）；`config.example.toml` 补 Windows 路径说明。**测试向量零改动。**
+- **T11.2** 开发环境与脚手架（✅；第三方依赖随用到它的任务再加，`windows:install` / `windows:uninstall` 随 T11.6 的安装脚本一起加）：
+  - 安装 .NET 10 SDK 与 WinUI 开发组件（Visual Studio 的"WinUI 应用程序开发"工作负载，或命令行安装 Windows App SDK 项目模板）。
+  - 建 `app-windows/WDashboard.sln`：`src/WDashboard.Core`（`net10.0`）、`src/WDashboard.App`（WinUI，`net10.0-windows`，不打包：`WindowsPackageType=None`）、`tests/WDashboard.Core.Tests`（xUnit）。依赖：`Tomlyn`、`CommunityToolkit.Mvvm`、`H.NotifyIcon.WinUI`。
+  - `.gitignore` 忽略 `bin/` / `obj/` / 发布目录；`Taskfile.yml` 的 `run` 按操作系统分派到对应端（本地开发唯一的启动方式），另加 `windows:build` / `windows:test` / `windows:install` / `windows:uninstall`。
+- **T11.3** 采集层（`WDashboard.Core`）（✅）：
+  - 数据模型（SDD §5，C# record / enum）。
+  - 配置加载（SDD §4：Windows 路径、`~` / `%VAR%` / `$VAR` 展开、UTF-8 与 CRLF / BOM 兼容、默认值、`[pomodoro]` / `[network]` / `[[network_targets]]` 校验与可读错误）；仓库增删改的文本级编辑（SDD §4.1）。
+  - 子进程封装：`CreateNoWindow`、UTF-8 解码、超时后杀整个进程树、区分"命令不存在"与"非零退出"、`GIT_TERMINAL_PROMPT=0`。
+  - git 采集与解析（§7.1）、`RepoState` 派生（§7.2）、`allowed_actions` / `run_repo_action`（§7.5）。
+  - 天气（§7.4：geocoding + forecast + WMO 映射 + 降级）。
+  - 番茄钟纯函数 `pomodoro_view` / `pomodoro_reduce`（§11.2 / §11.3）。（✅ 随 T11.2 先行）
+  - 网络健康纯函数 `probe_stats` / `probe_group_summary` / `classify_captive` / `network_health` / `throughput_mbps`（不实现 `parse_ping`）；取整用 `MidpointRounding.AwayFromZero`（§12.3）。（✅ 随 T11.2 先行）
+  - 采集入口 `probe_network`（网关用 `Ping` API、HTTP RTT、TCP 握手、Captive 绑定物理网卡）与 `run_speedtest`（§12.3–§12.6）。
+  - **测试**：xUnit 数据驱动加载 `docs/test-vectors/`，跑除 `ping-output/` 外全部类别；配置单测对齐 macOS 的 `ConfigPomodoroTests` / `ConfigNetworkTests` / `ConfigRepoCrudTests`（含 CRLF 文件与 Windows 反斜杠路径的增删改用例）；e2e 冒烟：临时 git 仓库 + bare remote 跑 Pull / Push；联网冒烟仅在 `W_DASHBOARD_NET_SMOKE=1` 时运行。
+- **T11.4** 主窗口 UI（`WDashboard.App`，MVVM）（✅；git 缺失提示文案为 `git not found in PATH — repo status unavailable`，Wi-Fi 噪声 / SNR 按 §12.7 固定显示 `—`）：
+  - 顶部 `[ Dashboard | Network ]`（`network.enabled == false` 时隐藏）；`Dashboard` = 「当下」卡（环形进度环 + 主切换按钮 + `Stop` | 时钟）/ Repos / Weather（§9）。
+  - Repos：`Manage…` 对话框（§4.1）、整体 `Refresh`、状态徽标颜色、Pull / Push / Fetch 按钮与行内结果、单行刷新图标按钮（§7.5、§8、§8.1：并发 4、行序稳定、种子行、`Checking…` 徽标、代际 token、收尾语义）。
+  - 刷新策略（§8）：启动 `check_environment` + 后台采集 + 手动 + 定时；时钟每秒刷新；git 缺失与天气失败的降级展示。
+  - `Network`页（§12.8）：概览 / Wi-Fi / 延迟表 / 测速；触发调度（启动 / 定时 / 网络切换去抖 3 秒 / `Re-check`，进行中合并，测速期间顺延）；链路信息（§12.7 Windows 机制，含 `Open location settings` 链接）。
+  - 所有采集在后台 `Task` 执行，结果经 `DispatcherQueue` 回 UI 线程。
+- **T11.5** 常驻图标与生命周期（§9.1、§11.4）：
+  - 托盘图标（预制 `.ico`）+ 两行 tooltip（北京时间 + 番茄钟状态）+ 右键菜单 `Start focus` / `Start break` / `Stop` / `Exit`；左键唤起主窗口。
+  - 1 秒 tick、`*Ended` 边沿触发通知（`AppNotificationManager`）与提示音（仅 `FocusEnded`）、红 / 橙闪烁 + `FlashWindowEx`、确认后复位；早晨提醒琥珀闪烁（不闪任务栏）。
+  - 关闭按钮 = 隐藏到托盘；`Exit` 退出；单实例（`AppInstance.FindOrRegisterForKey`，二次启动激活已有窗口）。
+- **T11.6** 安装与开机自启（§9.2）：`Scripts/install-windows.ps1`（结束旧进程 → `dotnet publish` 自包含 → 复制到 `%LOCALAPPDATA%\Programs\WDashboard\` → 开始菜单快捷方式 → `HKCU\…\Run` 自启项）与 `Scripts/uninstall-windows.ps1`（不删配置文件）；`app-windows/README.md` 写明构建 / 运行 / 测试 / 安装。
+- **T11.7** 一致性核对：与 macOS 用同一份配置、同一组真实仓库对照走查——`RepoState` 结论、按钮显隐、增量刷新 6 条规则、番茄钟 §11.2 / §11.3 / §11.4、健康等级与延迟表、UI 文案与颜色语义。
+- **验收**：
+  - `dotnet test` 全过：除 `ping-output/` 外的全部测试向量、配置与增删改单测、git 冒烟；
+  - 读 `%USERPROFILE%\.config\w_dashboard\config.toml`，与 macOS 用同一份配置时各仓库 `state` 结论一致；git 子进程不闪控制台窗口；
+  - `Manage…` 增删改后配置文件其余内容与注释逐字不变，列表随即整体刷新；
+  - 「当下」卡、Repos（含按钮与单行刷新）、Weather 的行为与 macOS 一致；后台采集不卡 UI；
+  - 番茄钟：时段结束托盘红 / 橙闪烁、任务栏按钮闪烁（窗口未隐藏时）、通知、仅专注结束响提示音；点按钮确认后全部停止；早晨提醒只闪琥珀托盘图标；tooltip 显示北京时间与剩余时间；
+  - 关闭窗口后进程仍在、番茄钟继续计时；托盘 `Exit` 退出；重复启动只激活已有窗口；
+  - `Network`页：自动探测、切换 Wi-Fi 后约 3 秒重测、健康等级与 §12.4 一致、Captive 在全局 VPN 下仍能判定（WireGuard 开 kill-switch 时为 `Unknown`，见 SDD §12.5）、手动测速 4 步；未授权定位时 SSID 显示 `(needs Location permission)`；
+  - 安装脚本执行后开始菜单可搜到 `WDashboard`，注销重新登录后自动启动；卸载脚本清理干净且保留配置。
+
+---
+
 ## 验收基线（贯穿所有里程碑）
 
-- **测试向量是一致性的权威闸门**：两端的解析与派生（git porcelain、RepoState、chezmoi status、weather JSON、WMO 映射）都必须通过 `docs/test-vectors/` 中的同一份用例。
-- 任何影响行为的变更：**先改 SDD 与测试向量，再让两端各自同步实现**（见 ADR-008）。
+- **测试向量是一致性的权威闸门**：各端的解析与派生（git porcelain、RepoState、chezmoi status、weather JSON、WMO 映射）都必须通过 `docs/test-vectors/` 中的同一份用例（Windows 不跑 `ping-output/`，见 SDD §10.2）。
+- 任何影响行为的变更：**先改 SDD 与测试向量，再让各端各自同步实现**（见 ADR-008）。
 - 任何单项数据源失败都不得导致整体崩溃或空白。
 - 所有联网与子进程调用均有超时与降级。
-- 两端在相同配置下对同一仓库/配置给出一致的状态结论。
+- 各端在相同配置下对同一仓库/配置给出一致的状态结论。
 
 ## 当前阶段不做（与 SDD §14 一致）
 

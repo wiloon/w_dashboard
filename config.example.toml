@@ -1,5 +1,8 @@
 # w_dashboard config template. Copy to $XDG_CONFIG_HOME/w_dashboard/config.toml
 # (falls back to ~/.config/w_dashboard/config.toml) and edit as needed.
+# On Windows: %XDG_CONFIG_HOME%\w_dashboard\config.toml if set, otherwise
+# %USERPROFILE%\.config\w_dashboard\config.toml. Repo paths may use ~ and forward
+# slashes (e.g. "~/workspace/projects/foo"); backslashes must be doubled ("C:\\src\\foo").
 # See docs/sdd.md §4 for the full schema.
 
 [general]

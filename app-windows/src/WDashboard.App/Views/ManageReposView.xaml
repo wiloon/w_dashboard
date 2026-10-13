@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="WDashboard.App.Views.ManageReposView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:WDashboard.App.ViewModels"
+    x:Name="Root"
+    x:DefaultBindMode="OneWay">
+
+    <StackPanel Width="520" Spacing="12">
+        <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Repos, Mode=OneTime}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ManagedRepo">
+                        <Grid
+                            Padding="0,6"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1"
+                            ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{x:Bind DisplayName, Mode=OneTime}" />
+                                <TextBlock
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Text="{x:Bind Path, Mode=OneTime}"
+                                    TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <HyperlinkButton
+                                Grid.Column="1"
+                                Click="OnEditClick"
+                                Content="Edit"
+                                Tag="{x:Bind Mode=OneTime}" />
+                            <HyperlinkButton
+                                Grid.Column="2"
+                                Click="OnRemoveClick"
+                                Content="Remove"
+                                Foreground="{StaticResource ErrorBrush}"
+                                Tag="{x:Bind Mode=OneTime}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <StackPanel Spacing="6">
+            <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind ViewModel.FormTitle}" />
+            <TextBox PlaceholderText="Path (e.g. ~/workspace/projects/foo)" Text="{x:Bind ViewModel.PathText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBox PlaceholderText="Display name (optional)" Text="{x:Bind ViewModel.NameText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock
+                Foreground="{StaticResource ErrorBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Text="{x:Bind ViewModel.FormError}"
+                TextWrapping="Wrap"
+                Visibility="{x:Bind ViewModel.HasError}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button
+                    Command="{x:Bind ViewModel.AddCommand}"
+                    Content="Add"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Visibility="{x:Bind ViewModel.IsAdding}" />
+                <Button
+                    Command="{x:Bind ViewModel.SaveCommand}"
+                    Content="Save"
+                    Style="{StaticResource AccentButtonStyle}"
+                    Visibility="{x:Bind ViewModel.IsEditing}" />
+                <Button
+                    Command="{x:Bind ViewModel.CancelCommand}"
+                    Content="Cancel"
+                    Visibility="{x:Bind ViewModel.IsEditing}" />
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

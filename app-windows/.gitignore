@@ -1,0 +1,10 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+dist/
+publish/
+[Tt]est[Rr]esult*/
+*.trx
+*.binlog

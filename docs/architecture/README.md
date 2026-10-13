@@ -9,7 +9,7 @@ Trade-offs（取舍）→ Consequences（后果与缓解）→ Revisit Trigger�
 | ADR | 标题 | 状态 |
 |-----|------|------|
 | [ADR-001](adr-001-native-local-app.md) | 应用形态：纯原生本地应用，不做后端 | Accepted |
-| [ADR-002](adr-002-spec-driven-native.md) | 代码复用：规格驱动、两端独立原生实现 | Accepted |
+| [ADR-002](adr-002-spec-driven-native.md) | 代码复用：规格驱动、各端独立原生实现 | Accepted |
 | [ADR-003](adr-003-shell-out-git-chezmoi.md) | 状态采集：调用 git / chezmoi 命令行 | Accepted |
 | [ADR-004](adr-004-user-config.md) | 配置与仓库发现：用户级 TOML 显式声明 | Accepted |
 | [ADR-005](adr-005-weather-open-meteo.md) | 天气数据源：Open-Meteo | Accepted |
@@ -22,6 +22,7 @@ Trade-offs（取舍）→ Consequences（后果与缓解）→ Revisit Trigger�
 | [ADR-012](adr-012-pomodoro-timer.md) | 番茄钟：在 w_dashboard 内新增一个常驻桌面小工具，时段结束闪烁托盘图标 | Accepted |
 | [ADR-013](adr-013-now-panel-merge.md) | 面板密度：番茄钟与时钟合并为顶部「当下（Now）」区，进度条改环形（macOS 先落地，Linux 待跟进） | Accepted |
 | [ADR-014](adr-014-network-health.md) | 网络健康：`Network`标签页，测实际路径的延迟 / 丢包 / 抖动 + 手动测速（macOS 先落地，Linux 待跟进） | Accepted |
+| [ADR-015](adr-015-windows-winui.md) | 新增 Windows 端：C# + .NET 10 + WinUI（Windows App SDK）独立原生实现 | Accepted |
 
 ## 设计总原则
 
@@ -31,4 +32,4 @@ Trade-offs（取舍）→ Consequences（后果与缓解）→ Revisit Trigger�
 所有可能的扩展（如汇总多机、Web 查看）都留作未来选项，通过清晰的模块边界保证可演进，而非现在就实现。
 
 本项目采用**规格驱动 + AI 生成**的工作模式（见 ADR-008）：ADR / SDD / task-spec 是单一事实来源，
-Linux 与 macOS 两端独立用各自原生技术实现（见 ADR-002），靠精确规格与共享的行为契约 / 测试向量保证两端行为一致。
+Linux、macOS、Windows 各端独立用各自原生技术实现（见 ADR-002、ADR-015），靠精确规格与共享的行为契约 / 测试向量保证各端行为一致。
