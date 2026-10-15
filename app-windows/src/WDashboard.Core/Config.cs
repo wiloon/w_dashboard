@@ -1,7 +1,6 @@
 // Config loading per docs/sdd.md §4 / §11 / §12.2. `[chezmoi]` is accepted but
 // ignored, matching the other ends (that panel isn't implemented anywhere yet).
 
-using System.Globalization;
 using Tomlyn;
 using Tomlyn.Model;
 
@@ -35,9 +34,8 @@ public sealed record PomodoroConfig
     public int BreakMinutes { get; init; } = 5;
     public bool Notify { get; init; } = true;
     public bool Sound { get; init; } = true;
-    public bool MorningNudge { get; init; } = true;
-    /// <summary>Beijing time of day, minutes since midnight (<c>morning_nudge_after</c>).</summary>
-    public int MorningNudgeAfterMinutes { get; init; } = 9 * 60;
+    /// <summary>Keep flashing the tray icon amber while idle (<c>idle_nudge</c>, §11.4 step 8).</summary>
+    public bool IdleNudge { get; init; } = true;
 }
 
 public sealed record NetworkTarget(
@@ -195,20 +193,6 @@ public static class ConfigLoader
             return n;
         }
 
-        int HhMm(string field, int fallback)
-        {
-            if (Str(raw, field) is not { } s) return fallback;
-            var parts = s.Split(':');
-            if (parts.Length == 2
-                && int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var h)
-                && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var m)
-                && h is >= 0 and < 24 && m is >= 0 and < 60)
-            {
-                return h * 60 + m;
-            }
-            throw Error($"pomodoro.{field}: must be a \"HH:MM\" 24-hour time, got \"{s}\"");
-        }
-
         return new PomodoroConfig
         {
             Enabled = Bool(raw, "enabled") ?? d.Enabled,
@@ -216,8 +200,7 @@ public static class ConfigLoader
             BreakMinutes = Minutes("break_minutes", d.BreakMinutes),
             Notify = Bool(raw, "notify") ?? d.Notify,
             Sound = Bool(raw, "sound") ?? d.Sound,
-            MorningNudge = Bool(raw, "morning_nudge") ?? d.MorningNudge,
-            MorningNudgeAfterMinutes = HhMm("morning_nudge_after", d.MorningNudgeAfterMinutes),
+            IdleNudge = Bool(raw, "idle_nudge") ?? d.IdleNudge,
         };
     }
 

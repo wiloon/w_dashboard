@@ -9,7 +9,7 @@ Swift + SwiftUI 实现，独立于 `app-linux`（不共享代码/FFI，见 ADR-0
 - `Sources/WDashboardCore`：采集层（config / git / weather / 数据模型），纯 Foundation，无 UI 依赖。
 - `Sources/WDashboardApp`：SwiftUI 可执行 target（Repos / Clocks / Weather 三分区）。
 - `Tests/WDashboardCoreTests`：加载 `../docs/test-vectors/` 的契约测试 + config 增删改单测。
-- `Scripts/build-app.sh`：release 构建并组装 `dist/WDashboard.app`。
+- `Scripts/build-app.sh`：release 构建并组装 `dist.noindex/WDashboard.app`（`.noindex` 后缀让 Spotlight 不收录这份构建产物，避免与 `~/Applications` 里的安装版重复）。
 
 ## 构建 / 运行 / 测试
 
@@ -25,7 +25,7 @@ swift run WDashboardApp  # 启动窗口
 
 ```sh
 ./Scripts/build-app.sh
-open dist/WDashboard.app
+open dist.noindex/WDashboard.app
 ```
 
 ## 安装到系统（Spotlight 可搜 + 开机启动）

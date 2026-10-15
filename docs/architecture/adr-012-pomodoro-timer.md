@@ -32,9 +32,9 @@ Accepted（在 ADR-001「只展示本机状态」之外，新增一类**常驻�
 - **推进方式 = 手动 + 持续提醒**：与 `pomodoro-vue` 一致，时段结束后图标一直闪 + 一条通知，直到用户点「开始休息 / 开始专注 / 停止」。
 - **提醒方式 = 闪托盘图标 + 系统通知 + 提示音**（闪图标是核心，通知/声音是加强）。
 - **专注结束比休息结束更强**：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，**不响提示音**（用户原始诉求只提到"工作时段结束"）。
-- **自动收工**：`*Ended` 持续超时满 30 分钟仍无人确认 → 视为人已离开，`pomodoro_reduce` 自己把 phase 收回 `Idle`（避免关机一夜后开机看到无意义的常闪）。
+- ~~**自动收工**：`*Ended` 持续超时满 30 分钟仍无人确认 → `pomodoro_reduce` 自己把 phase 收回 `Idle`。~~ **已撤销（2026-10-13 修订，见文末）**：`*Ended` 一直闪到用户确认。
 - **不跨重启保留状态**：番茄钟状态只存内存，重启回到空闲。当日完成数也不持久化。
-- **早晨提醒（morning nudge）**：每天早上（北京时间，缺省 09:00 后）还没开第一个专注就闪图标——弥补"番茄钟要手动开、容易忘"。只闪图标（比 `*Ended` 弱一档），当天开过就停，起始时刻可配。详见「UI 层职责」第 8 项、SDD §11.4。
+- **空闲提醒（idle nudge）**：只要停在 `Idle` 就一直闪琥珀色图标——弥补"番茄钟要手动开、容易忘"。只闪图标（比 `*Ended` 弱一档）。取代早先的「早晨提醒」（2026-10-13 修订，见文末）。详见「UI 层职责」第 8 项、SDD §11.4。
 
 **约束（不变）**：
 
@@ -141,8 +141,7 @@ pomodoro_reduce(state: PomodoroState, event: PomodoroEvent, now: int) -> Pomodor
      3. Stop       → { phase: Idle,  phase_started_at: null }
      4. Tick 且 phase == Focus 且 (now - phase_started_at) >= focus_secs → FocusEnded
      5. Tick 且 phase == Break 且 (now - phase_started_at) >= break_secs → BreakEnded
-     6. Tick 且 phase ∈ {FocusEnded, BreakEnded} 且 overtime >= 1800s → Idle（自动收工）
-     7. 其余 Tick → 状态不变
+     6. 其余 Tick → 状态不变（含 *Ended 超时任意久——无自动收工，2026-10-13 修订）
     时长冻结：reduce 只读 state.focus_secs / state.break_secs，从不读配置——
     进行中（含 *Ended）的时段目标时长定死在 state。配置的时长变更由 UI 层在
     phase == Idle 时才写回 state（见 SDD §11.4 步骤 7）。
@@ -164,13 +163,12 @@ break_minutes = 5
 notify = true
 # 时段结束时播放一次提示音
 sound = true
-# 每天早上（北京时间）过了 morning_nudge_after 还没开第一个专注就闪图标提醒
-morning_nudge = true
-morning_nudge_after = "09:00"
+# 停在 Idle 时一直闪琥珀色图标，提醒开下一个番茄钟
+idle_nudge = true
 ```
 
 - `enabled = false`：面板隐藏，不注册托盘图标状态（托盘只保留现有"点击唤起窗口"行为）。
-- 字段缺失走默认值（25 / 5 / true / true / true / `09:00`）；非法值（如 `focus_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`）返回带字段定位的可读错误，按 SDD §4 既有规则处理。
+- 字段缺失走默认值（25 / 5 / true / true / true）；非法值（如 `focus_minutes <= 0`）返回带字段定位的可读错误，按 SDD §4 既有规则处理。
 
 ### UI 层职责（两端各自实现，**不进向量**）
 
@@ -194,10 +192,10 @@ morning_nudge_after = "09:00"
 4. **进入 `*Ended` 的那一刻（phase 边沿，只触发一次）**：
    - `notify == true` → 一条系统通知（macOS `UNUserNotificationCenter`；Linux `notify-send` 子进程，延续 ADR-003 的 "shell out" 风格）。文案：专注结束「该起来活动了」/ 休息结束「可以开始专注了」。
    - `sound == true` **且进入的是 `FocusEnded`** → 播一次提示音（macOS `NSSound`；Linux `canberra-gtk-play` / `paplay` 子进程）。`BreakEnded` 不响。子进程失败静默降级。
-5. **确认（用户点任意「开始…」/「停止」，或规则 6 自动收工）**：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`。
+5. **确认（用户点任意「开始…」/「停止」）**：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`。
 6. **无 SNI host 兜底（Linux）**：检测不到 StatusNotifierWatcher 时，`*Ended` 态改为——面板内大号高亮横幅 + 窗口标题加前缀 `⏰`。
 7. **配置加载**：v1 无配置热重载——`[pomodoro]` 启动时读一次，改设置需重启（重启本就回 `Idle`）。将来加热重载时的规则见 SDD §11.4 步骤 7。
-8. **早晨提醒（morning nudge）**：每天早上（北京时间）过了 `morning_nudge_after` 还停在 `Idle` 且当天没开过专注 → 托盘/菜单栏图标以 `*Ended` 同频闪**琥珀色**、窗口标题加 `⏰`。**只闪图标**，不发通知、不响声音、macOS 不跳 Dock——比 `*Ended` 弱一档（用户诉求只提到"让图标闪"）。当天一旦 `StartFocus` 即停，到次日北京零点重新武装。判据读北京墙上时钟，纯 UI 层、不进向量（同时钟刷新）。「当天开过专注」只记内存、不持久化——重启会重新提醒。精确判据见 SDD §11.4 步骤 8。
+8. **空闲提醒（idle nudge）**：只要停在 `Idle` → 托盘/菜单栏图标以 `*Ended` 同频闪**琥珀色**、窗口标题加 `⏰`。**只闪图标**，不发通知、不响声音、macOS 不跳 Dock——比 `*Ended` 弱一档。纯 UI 层、不进向量。闪烁不得持有任何阻止休眠的电源断言。精确判据见 SDD §11.4 步骤 8。
 
 ### 明确不做（v1）
 
@@ -229,7 +227,7 @@ morning_nudge_after = "09:00"
 - **Mitigation**：
   - **SDD 新增 §11「番茄钟」**：数据模型（`PomodoroPhase` / `PomodoroState`）、`pomodoro_view` / `pomodoro_reduce` 纯函数签名与规则表、配置 `[pomodoro]`、UI 层职责与托盘状态机、降级路径。
   - **新增 `docs/test-vectors/pomodoro/`**：`{ input: { phase, phase_started_at, focus_secs, break_secs, now }, expected: PomodoroView }`，覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。
-  - **新增 `docs/test-vectors/pomodoro-transition/`**：`{ input: { state, event, now }, expected: PomodoroState }`，覆盖 §11.3 的 7 条迁移规则每一条 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值上下边界。
+  - **新增 `docs/test-vectors/pomodoro-transition/`**：`{ input: { state, event, now }, expected: PomodoroState }`，覆盖 §11.3 的迁移规则每一条 + `Tick` 触发 `*Ended` 的临界（自动收工已于 2026-10-13 撤销，改为锁定"`*Ended` 超时很久仍不变"）。
   - **task-spec 加里程碑 M8「番茄钟」**：规格先行（本 ADR + SDD §11）→ 向量 → 两端实现（Linux `ksni` / macOS `NSStatusItem`）→ 对照 §11 逐条一致性走查。
   - **AGENTS.md「项目是什么」**：补一句——除展示本机状态外，含一个常驻桌面小工具（番茄钟）。
   - **`config.example.toml`** 加 `[pomodoro]` 段（全字段 + 注释）。
@@ -278,3 +276,16 @@ morning_nudge_after = "09:00"
 - 迁到非 KDE、无 SNI 托盘的环境，兜底横幅不够用——重新评估窗口 urgency / 其他机制。
 - 想要多设备同步番茄状态（手机 + 桌面一致）——那属于 ADR-001 方案 B（后端）的范畴，另开 ADR。
 - 番茄钟之外又想往 w_dashboard 塞第二、第三个小工具——停下来先问"这还叫不叫 dashboard"。
+
+## 修订 2026-10-13：番茄钟不再有静默状态
+
+**触发**：作者反馈——"长时间没操作它会回到 idle，我不希望它回到静默状态，这样我很容易忘了开。只要没在 Focus / Break 计时，就要一直提醒我操作它（黄 / 红一直闪都可以），唯一的要求是不要影响电脑休眠。"
+
+**决定**：
+
+1. **撤销自动收工**（原迁移规则 6）：`*Ended` 是终态，只由用户显式 `StartFocus` / `StartBreak` / `Stop` 退出，超时多久都一直闪红 / 橙。原先担心的"关机一夜后开机看到无意义的常闪"——那正是作者想要的："回来了，该开下一个了"。
+2. **早晨提醒 → 空闲提醒**：去掉"北京时间 `morning_nudge_after` 之后"与"当天没开过专注"两个条件，只要 `Idle` 就闪琥珀色。配置 `morning_nudge` / `morning_nudge_after` 替换为单个 `idle_nudge`（bool，缺省 `true`）；旧键不再识别、被忽略。
+3. **不影响休眠**：提醒只靠 UI 定时器切图标，各端都**不**持有阻止休眠 / 息屏的电源断言；系统照常锁屏、休眠，唤醒后下个 tick 恢复。
+
+**影响**：迁移表从 7 条变 6 条；`pomodoro-transition/` 向量中的自动收工边界用例改为"`*Ended` 超时数小时 `Tick` 不变"；三端 reduce 删除自动收工分支、UI 层删除北京日历日 / 起始时刻判据。
+

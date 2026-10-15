@@ -65,7 +65,7 @@ PlasmoidItem {
 
     readonly property string statusText: {
         if (!connected) return i18n("w_dashboard: not running");
-        if (showingNudge) return i18n("Pomodoro: start your first focus");
+        if (showingNudge) return i18n("Pomodoro: idle — start a focus");
         switch (phase) {
         case "focus": return i18n("Pomodoro: focusing");
         case "break": return i18n("Pomodoro: break");
@@ -135,7 +135,7 @@ PlasmoidItem {
         }
     }
 
-    // ---- Alert / morning-nudge flash, same 650ms cadence as the tray icon. ----
+    // ---- Alert / idle-nudge flash, same 650ms cadence as the tray icon. ----
     Timer {
         interval: 650
         running: root.flashing

@@ -174,31 +174,10 @@ fn pomodoro_bar_color(phase: PomodoroPhase) -> Color {
     }
 }
 
-/// Beijing (Asia/Shanghai) wall clock right now.
-fn beijing_now() -> chrono::DateTime<chrono_tz::Tz> {
-    chrono::Utc::now().with_timezone(&chrono_tz::Asia::Shanghai)
-}
-
-/// Whether to flash the tray as a "you haven't started your first focus yet"
-/// nudge (docs/sdd.md §11.4 step 8). UI-layer only — it reads the Beijing wall
-/// clock, never `PomodoroState`, so it stays out of the pure logic and vectors.
-/// True when: enabled, still `Idle`, at/after `morning_nudge_after` Beijing time,
-/// and no focus has been started yet today (Beijing date).
-fn morning_nudge_active(
-    cfg: &config::PomodoroConfig,
-    first_focus_date: Option<chrono::NaiveDate>,
-    phase: PomodoroPhase,
-) -> bool {
-    use chrono::Timelike;
-    if !cfg.enabled || !cfg.morning_nudge || phase != PomodoroPhase::Idle {
-        return false;
-    }
-    let now = beijing_now();
-    if first_focus_date == Some(now.date_naive()) {
-        return false;
-    }
-    let minutes = now.hour() as u16 * 60 + now.minute() as u16;
-    minutes >= cfg.morning_nudge_after_minutes
+/// Whether to flash the tray amber as a "the timer isn't running" nudge
+/// (docs/sdd.md §11.4 step 8): enabled and sitting in `Idle`. UI-layer only.
+fn idle_nudge_active(cfg: &config::PomodoroConfig, phase: PomodoroPhase) -> bool {
+    cfg.enabled && cfg.idle_nudge && phase == PomodoroPhase::Idle
 }
 
 fn apply_pomodoro(ui: &AppWindow, state: &PomodoroState, now: i64, nudging: bool) {
@@ -212,7 +191,7 @@ fn apply_pomodoro(ui: &AppWindow, state: &PomodoroState, now: i64, nudging: bool
     ui.set_pomodoro_primary_label(pomodoro_primary_label(view.phase).into());
     ui.set_pomodoro_primary_event(pomodoro_primary_event(view.phase).into());
     // Window-title prefix doubles as the no-tray fallback signal (SDD §11.4
-    // steps 6 & 8): the `*Ended` alert, or the morning "start your first focus" nudge.
+    // steps 6 & 8): the `*Ended` alert, or the idle nudge.
     ui.set_window_title(if view.alerting || nudging { "⏰ w_dashboard" } else { "w_dashboard" }.into());
 }
 
@@ -223,18 +202,12 @@ fn dispatch_pomodoro_event(
     tray: &Option<tray::PomodoroTray>,
     ui_weak: &Weak<AppWindow>,
     cfg: &config::PomodoroConfig,
-    first_focus_date: &RefCell<Option<chrono::NaiveDate>>,
     event: PomodoroEvent,
 ) {
     let now = now_unix();
-    if event == PomodoroEvent::StartFocus {
-        // Records that today's first focus has happened — silences the morning
-        // nudge for the rest of this Beijing calendar day (docs/sdd.md §11.4 step 8).
-        *first_focus_date.borrow_mut() = Some(beijing_now().date_naive());
-    }
     let mut st = state.borrow_mut();
     *st = pomodoro_reduce(*st, event, now);
-    let nudging = morning_nudge_active(cfg, *first_focus_date.borrow(), st.phase);
+    let nudging = idle_nudge_active(cfg, st.phase);
     if let Some(t) = tray {
         t.set_phase(st.phase);
         t.set_nudging(nudging);
@@ -859,9 +832,6 @@ fn main() -> anyhow::Result<()> {
         i64::from(pomodoro_cfg.focus_minutes) * 60,
         i64::from(pomodoro_cfg.break_minutes) * 60,
     )));
-    // Beijing date of the most recent StartFocus; drives the morning nudge
-    // (docs/sdd.md §11.4 step 8). Not persisted — a restart re-arms the nudge.
-    let first_focus_date = Rc::new(RefCell::new(None::<chrono::NaiveDate>));
 
     // Tray menu -> UI thread. `PomodoroTray` is `None` when disabled, off Linux,
     // or when there is no StatusNotifierItem host (then the in-window title/border
@@ -877,13 +847,12 @@ fn main() -> anyhow::Result<()> {
         &ui,
         &pomodoro_state.borrow(),
         now_unix(),
-        morning_nudge_active(&pomodoro_cfg, None, pomodoro_state.borrow().phase),
+        idle_nudge_active(&pomodoro_cfg, pomodoro_state.borrow().phase),
     );
 
     {
         let pomodoro_state = pomodoro_state.clone();
         let pomodoro_tray = pomodoro_tray.clone();
-        let first_focus_date = first_focus_date.clone();
         let ui_weak = ui.as_weak();
         ui.on_pomodoro_event(move |raw_event| {
             let event = match raw_event.as_str() {
@@ -897,7 +866,6 @@ fn main() -> anyhow::Result<()> {
                 &pomodoro_tray,
                 &ui_weak,
                 &pomodoro_cfg,
-                &first_focus_date,
                 event,
             );
         });
@@ -909,11 +877,10 @@ fn main() -> anyhow::Result<()> {
         {
             let pomodoro_state = pomodoro_state.clone();
             let pomodoro_tray = pomodoro_tray.clone();
-            let first_focus_date = first_focus_date.clone();
             let ui_weak = ui.as_weak();
             let notify = pomodoro_cfg.notify;
             let sound = pomodoro_cfg.sound;
-            // Last morning-nudge value pushed to the tray; only re-pushed on a
+            // Last idle-nudge value pushed to the tray; only re-pushed on a
             // change so the flash cadence isn't reset every second.
             let last_nudging = Cell::new(false);
             pomodoro_timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
@@ -935,8 +902,7 @@ fn main() -> anyhow::Result<()> {
                         t.set_phase(new_phase);
                     }
                 }
-                let nudging =
-                    morning_nudge_active(&pomodoro_cfg, *first_focus_date.borrow(), new_phase);
+                let nudging = idle_nudge_active(&pomodoro_cfg, new_phase);
                 if nudging != last_nudging.get() {
                     last_nudging.set(nudging);
                     if let Some(t) = &*pomodoro_tray {
@@ -951,7 +917,6 @@ fn main() -> anyhow::Result<()> {
         {
             let pomodoro_state = pomodoro_state.clone();
             let pomodoro_tray = pomodoro_tray.clone();
-            let first_focus_date = first_focus_date.clone();
             let ui_weak = ui.as_weak();
             pomodoro_tray_poll.start(TimerMode::Repeated, Duration::from_millis(250), move || {
                 while let Ok(event) = tray_rx.try_recv() {
@@ -960,7 +925,6 @@ fn main() -> anyhow::Result<()> {
                         &pomodoro_tray,
                         &ui_weak,
                         &pomodoro_cfg,
-                        &first_focus_date,
                         event,
                     );
                 }

@@ -1,5 +1,5 @@
 // Pomodoro panel state (docs/sdd.md §11.4 steps 1, 2, 8). All transitions go
-// through WDashboard.Core.Pomodoro; this class owns the 1s tick, the morning
+// through WDashboard.Core.Pomodoro; this class owns the 1s tick, the idle
 // nudge and the phase-edge events the tray layer listens to.
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -15,8 +15,6 @@ public sealed partial class PomodoroViewModel : ObservableObject
     private readonly PomodoroConfig _config;
     private readonly DispatcherQueueTimer _timer;
     private PomodoroState _state;
-    /// <summary>Beijing calendar day of the latest StartFocus; not persisted (§11.4 step 8).</summary>
-    private DateOnly? _firstFocusDay;
 
     public PomodoroViewModel(PomodoroConfig config, DispatcherQueue dispatcher)
     {
@@ -31,7 +29,7 @@ public sealed partial class PomodoroViewModel : ObservableObject
     /// <summary>Raised on every phase change with (previous, current).</summary>
     public event Action<PomodoroPhase, PomodoroPhase>? PhaseChanged;
 
-    /// <summary>Raised when the morning nudge turns on or off.</summary>
+    /// <summary>Raised when the idle nudge turns on or off.</summary>
     public event Action<bool>? NudgeChanged;
 
     public bool Enabled => _config.Enabled;
@@ -42,7 +40,7 @@ public sealed partial class PomodoroViewModel : ObservableObject
     public partial PomodoroView View { get; private set; }
 
     [ObservableProperty]
-    public partial bool MorningNudge { get; private set; }
+    public partial bool IdleNudge { get; private set; }
 
     public PomodoroPhase Phase => View.Phase;
 
@@ -68,7 +66,7 @@ public sealed partial class PomodoroViewModel : ObservableObject
 
     public Brush LabelBrush => View.Alerting ? AccentBrush : Palette.TextPrimary;
 
-    /// <summary>Only <c>*Ended</c> highlights the panel; the morning nudge lives on the tray icon (§11.4 step 8).</summary>
+    /// <summary>Only <c>*Ended</c> highlights the panel; the idle nudge lives on the tray icon (§11.4 step 8).</summary>
     public SolidColorBrush BorderBrush => Palette.Brush(View.Alerting ? Palette.Pomodoro(View.Phase) : Palette.Transparent);
 
     public Brush PrimaryButtonBrush => View.Alerting ? AccentBrush : AccentFill;
@@ -107,28 +105,21 @@ public sealed partial class PomodoroViewModel : ObservableObject
     private void Apply(PomodoroEvent ev)
     {
         var now = Now();
-        if (ev == PomodoroEvent.StartFocus) _firstFocusDay = DateOnly.FromDateTime(Beijing.Now);
-
         var previous = _state.Phase;
         _state = Pomodoro.Reduce(_state, ev, now);
         View = Pomodoro.View(_state, now);
         if (_state.Phase != previous) PhaseChanged?.Invoke(previous, _state.Phase);
 
         var nudge = NudgeActive();
-        if (nudge != MorningNudge)
+        if (nudge != IdleNudge)
         {
-            MorningNudge = nudge;
+            IdleNudge = nudge;
             NudgeChanged?.Invoke(nudge);
         }
     }
 
-    private bool NudgeActive()
-    {
-        if (!_config.Enabled || !_config.MorningNudge || _state.Phase != PomodoroPhase.Idle) return false;
-        var beijing = Beijing.Now;
-        if (_firstFocusDay == DateOnly.FromDateTime(beijing)) return false;
-        return beijing.Hour * 60 + beijing.Minute >= _config.MorningNudgeAfterMinutes;
-    }
+    private bool NudgeActive() =>
+        _config.Enabled && _config.IdleNudge && _state.Phase == PomodoroPhase.Idle;
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 

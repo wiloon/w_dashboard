@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 swift build -c release --product WDashboardApp
 
-APP_DIR="dist/WDashboard.app"
+APP_DIR="dist.noindex/WDashboard.app"
 MACOS_DIR="$APP_DIR/Contents/MacOS"
 RESOURCES_DIR="$APP_DIR/Contents/Resources"
 

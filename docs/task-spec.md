@@ -185,10 +185,10 @@
 > 移植自作者的网页版 `pomodoro-vue`。纯逻辑（`pomodoro_view` / `pomodoro_reduce`）是纯函数、进测试向量；
 > 定时器 / 托盘图标 / 通知 / 声音是各端 UI 层副作用，只做人工走查。不碰 §7 任何采集与派生规则。
 
-- **T8.1** 规格先行：写 ADR-012；SDD §1 概述补第 5 项，§4 加 `[pomodoro]` 段与校验规则，§5.6 加 `PomodoroPhase` / `PomodoroState` / `PomodoroView`，§6 加 `pomodoro_view` / `pomodoro_reduce` 签名，§9 把 Pomodoro 列为置顶分区 + 颜色语义，§10.2 加 `pomodoro/` 与 `pomodoro-transition/` 类别，新增 §11「番茄钟」（分层 / 派生规则 / 迁移规则含自动收工 / 时长冻结 / UI 职责含配置重载 / 非目标），§13 非目标补一条；同步 `AGENTS.md`「项目是什么」、`config.example.toml`、`.cursor/rules/ui-no-logic.mdc`、`CONTEXT.md` 术语。
+- **T8.1** 规格先行：写 ADR-012；SDD §1 概述补第 5 项，§4 加 `[pomodoro]` 段与校验规则，§5.6 加 `PomodoroPhase` / `PomodoroState` / `PomodoroView`，§6 加 `pomodoro_view` / `pomodoro_reduce` 签名，§9 把 Pomodoro 列为置顶分区 + 颜色语义，§10.2 加 `pomodoro/` 与 `pomodoro-transition/` 类别，新增 §11「番茄钟」（分层 / 派生规则 / 迁移规则 / 时长冻结 / UI 职责含配置重载 / 非目标），§13 非目标补一条；同步 `AGENTS.md`「项目是什么」、`config.example.toml`、`.cursor/rules/ui-no-logic.mdc`、`CONTEXT.md` 术语。
 - **T8.2** 测试向量：
   - `docs/test-vectors/pomodoro/`（10 个）：`{ "input": { "phase", "phase_started_at", "focus_secs", "break_secs", "now" }, "expected": { PomodoroView 全字段 } }`。覆盖 SDD §11.2 表每一行 + 临界（`elapsed == duration` 恰好）+ overtime + `Idle`（`phase_started_at: null`）。
-  - `docs/test-vectors/pomodoro-transition/`（13 个）：`{ "input": { "state": { PomodoroState }, "event": "<PomodoroEvent>", "now" }, "expected": { PomodoroState } }`。覆盖 SDD §11.3 迁移表 7 条每一条 + `Tick` 恰好触发 `FocusEnded` / `BreakEnded` 的临界 + 自动收工阈值（规则 6）上下边界 + `Tick` 未到时不变。
+  - `docs/test-vectors/pomodoro-transition/`（13 个）：`{ "input": { "state": { PomodoroState }, "event": "<PomodoroEvent>", "now" }, "expected": { PomodoroState } }`。覆盖 SDD §11.3 迁移表每一条 + `Tick` 恰好触发 `FocusEnded` / `BreakEnded` 的临界 + `*Ended` 超时数小时 `Tick` 仍不变（无自动收工，2026-10-13）+ `Tick` 未到时不变。
   - 两端契约测试各加 `pomodoro` / `pomodoro_transition` 用例。
 - **T8.3** app-linux 实现（✅ 已完成，除真机烟测）：
   - `src/pomodoro.rs`：`PomodoroPhase` / `PomodoroState` / `PomodoroView` / `PomodoroEvent`；纯函数 `pomodoro_view(&PomodoroState, i64)` 与 `pomodoro_reduce(PomodoroState, PomodoroEvent, i64)`。
@@ -203,12 +203,12 @@
   - `Sources/WDashboardApp/PomodoroPanelView.swift`：置顶分区 SwiftUI 视图（名为 `PomodoroPanelView`，避开与 core `PomodoroView` 同名）；`AppState.swift` 持有 `PomodoroState` + `Task` 每秒 `Tick`，`@Published pomodoro: PomodoroView` 供渲染；进入 `FocusEnded` 边沿 `osascript display notification` + `NSSound(named:"Glass")`，进入 `BreakEnded` 边沿只通知；`[pomodoro]` 启动时读一次。
   - `Sources/WDashboardApp/AppDelegate.swift`：`StatusItemController` 按 phase 切 `button.image`（`timer` SF Symbol；`*Ended` `paletteColors` 红/橙非模板 + `Timer` ~0.65s 闪烁），进入 `*Ended` `NSApp.requestUserAttention(.criticalRequest)`，离开时 `cancelUserAttentionRequest`；`WDashboardApp.swift` 用 `appState.onPomodoroPhaseChange` 接线。
   - `Tests/WDashboardCoreTests/VectorTests.swift` 加 `testPomodoroViewVectors` / `testPomodoroTransitionVectors`；`ConfigPomodoroTests.swift`（5 例）。
-- **T8.5** 一致性核对：两端对照 SDD §11 逐条走查——§11.2 派生表 5 行、§11.3 迁移表 7 条（含自动收工）+ 时长冻结、§11.4 UI 职责 7 条（1s tick / 面板 / 托盘状态机 4 态 / 边沿触发：FocusEnded 三样 & BreakEnded 无声 / 确认或自动收工停止提醒 / 无 SNI 兜底 / 无热重载）。
+- **T8.5** 一致性核对：两端对照 SDD §11 逐条走查——§11.2 派生表 5 行、§11.3 迁移表 6 条 + 时长冻结、§11.4 UI 职责 7 条（1s tick / 面板 / 托盘状态机 4 态 / 边沿触发：FocusEnded 三样 & BreakEnded 无声 / 确认停止提醒 / 无 SNI 兜底 / 无热重载）。
 - **验收**：
   - 点「开始专注」后剩余时间每秒递减，进度条推进；到 0 进入 `FocusEnded`——托盘/菜单栏图标开始红色闪烁、弹一条系统通知、响一次提示音；
   - `FocusEnded` 状态一直闪，直到点「开始休息 / 开始专注 / 停止」之一才停；
   - 「开始休息」倒计时结束进入 `BreakEnded`，图标橙色闪烁、弹通知，但**不响提示音**；
-  - `*Ended` 持续 30 分钟无人点 → 自动回到 `Idle`、停止闪烁（用向量覆盖；手动可改系统时钟验证）；
+  - `*Ended` 无人点就一直闪，不会自动回 `Idle`（用向量覆盖）；`Idle` 时图标一直闪琥珀色（`idle_nudge = false` 可关）；提醒期间系统照常休眠；
   - `pomodoro.enabled = false` 时面板与托盘状态都不出现（改配置后重启生效，v1 无热重载）；
   - `focus_minutes` / `break_minutes` 改动重启后生效；`pomodoro_reduce` 的时长冻结由向量锁定；
   - `notify = false` 关掉通知、`sound = false` 关掉提示音，闪图标都不受影响；
@@ -234,7 +234,7 @@
     卡片退化为纯时钟。
   - `PomodoroPanelView`：横向 `ProgressView` 换成环形进度环（`Circle().trim(from:0,to:progress)` +
     `.rotationEffect(-90°)`，`mm:ss` / `+mm:ss` 居中 `Text`，环色 = 现有 `accent`）。`*Ended` 高亮边框
-    与早晨提醒提示只包住番茄钟子区域（现状即如此，合并后确认不外溢到时钟）。
+    与空闲提醒提示只包住番茄钟子区域（现状即如此，合并后确认不外溢到时钟）。
   - `ContentView`：`ScrollView` 里第一项换成「当下」卡；删掉原先单独的 `ClocksView` 分区调用；
     分区顺序变为 当下 / Repos / chezmoi(隐含) / Weather。
   - `ClocksView`：日期行改为省略或小字（保留 label + 时间为主）。
@@ -247,7 +247,7 @@
     右北京 + 纽约时钟；
   - `pomodoro.enabled = false` 时该卡只剩时钟；
   - `*Ended` 时高亮只在番茄钟半区，时钟不受影响；
-  - 番茄钟按钮行为、tick、通知 / 声音 / 托盘图标、早晨提醒全部与 M8 一致；
+  - 番茄钟按钮行为、tick、通知 / 声音 / 托盘图标、空闲提醒全部与 M8 一致；
   - `swift test` 全过，向量零改动；
   - Linux 两端未改，仍按原布局工作。
 
@@ -312,7 +312,7 @@
   - 所有采集在后台 `Task` 执行，结果经 `DispatcherQueue` 回 UI 线程。
 - **T11.5** 常驻图标与生命周期（§9.1、§11.4）：
   - 托盘图标（预制 `.ico`）+ 两行 tooltip（北京时间 + 番茄钟状态）+ 右键菜单 `Start focus` / `Start break` / `Stop` / `Exit`；左键唤起主窗口。
-  - 1 秒 tick、`*Ended` 边沿触发通知（`AppNotificationManager`）与提示音（仅 `FocusEnded`）、红 / 橙闪烁 + `FlashWindowEx`、确认后复位；早晨提醒琥珀闪烁（不闪任务栏）。
+  - 1 秒 tick、`*Ended` 边沿触发通知（`AppNotificationManager`）与提示音（仅 `FocusEnded`）、红 / 橙闪烁 + `FlashWindowEx`、确认后复位；空闲提醒琥珀闪烁（不闪任务栏）。
   - 关闭按钮 = 隐藏到托盘；`Exit` 退出；单实例（`AppInstance.FindOrRegisterForKey`，二次启动激活已有窗口）。
 - **T11.6** 安装与开机自启（§9.2）：`Scripts/install-windows.ps1`（结束旧进程 → `dotnet publish` 自包含 → 复制到 `%LOCALAPPDATA%\Programs\WDashboard\` → 开始菜单快捷方式 → `HKCU\…\Run` 自启项）与 `Scripts/uninstall-windows.ps1`（不删配置文件）；`app-windows/README.md` 写明构建 / 运行 / 测试 / 安装。
 - **T11.7** 一致性核对：与 macOS 用同一份配置、同一组真实仓库对照走查——`RepoState` 结论、按钮显隐、增量刷新 6 条规则、番茄钟 §11.2 / §11.3 / §11.4、健康等级与延迟表、UI 文案与颜色语义。
@@ -321,7 +321,7 @@
   - 读 `%USERPROFILE%\.config\w_dashboard\config.toml`，与 macOS 用同一份配置时各仓库 `state` 结论一致；git 子进程不闪控制台窗口；
   - `Manage…` 增删改后配置文件其余内容与注释逐字不变，列表随即整体刷新；
   - 「当下」卡、Repos（含按钮与单行刷新）、Weather 的行为与 macOS 一致；后台采集不卡 UI；
-  - 番茄钟：时段结束托盘红 / 橙闪烁、任务栏按钮闪烁（窗口未隐藏时）、通知、仅专注结束响提示音；点按钮确认后全部停止；早晨提醒只闪琥珀托盘图标；tooltip 显示北京时间与剩余时间；
+  - 番茄钟：时段结束托盘红 / 橙闪烁、任务栏按钮闪烁（窗口未隐藏时）、通知、仅专注结束响提示音；点按钮确认后全部停止；空闲提醒只闪琥珀托盘图标；tooltip 显示北京时间与剩余时间；
   - 关闭窗口后进程仍在、番茄钟继续计时；托盘 `Exit` 退出；重复启动只激活已有窗口；
   - `Network`页：自动探测、切换 Wi-Fi 后约 3 秒重测、健康等级与 §12.4 一致、Captive 在全局 VPN 下仍能判定（WireGuard 开 kill-switch 时为 `Unknown`，见 SDD §12.5）、手动测速 4 步；未授权定位时 SSID 显示 `(needs Location permission)`；
   - 安装脚本执行后开始菜单可搜到 `WDashboard`，注销重新登录后自动启动；卸载脚本清理干净且保留配置。

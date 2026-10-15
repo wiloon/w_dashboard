@@ -55,12 +55,10 @@ break_minutes = 5
 notify = true
 # Play a sound once when a session ends.
 sound = true
-# Flash the tray / menu-bar icon each morning (Beijing time) if no focus session
-# has been started yet that day. Stops for the day once the first focus starts.
-# false = no morning nudge.
-morning_nudge = true
-# Beijing wall-clock time-of-day ("HH:MM", 24h) after which the morning nudge starts.
-morning_nudge_after = "09:00"
+# Keep flashing the tray / menu-bar icon (amber) whenever the timer is idle, i.e.
+# not counting a focus or break, as a reminder to start the next session.
+# Never blocks system sleep. false = the icon stays quiet while idle.
+idle_nudge = true
 
 [network]
 # Enable the "Network" tab and its probes (docs/sdd.md §12). false = no tab, no probing.

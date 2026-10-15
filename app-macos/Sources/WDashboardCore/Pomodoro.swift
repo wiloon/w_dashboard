@@ -5,11 +5,6 @@
 // mirroring app-linux/src/pomodoro.rs. The 1s tick, menu-bar icon, notifications
 // and sound live in the app layer (AppState / AppDelegate), not here.
 
-/// After a `*Ended` phase has been unacknowledged for this long, `pomodoroReduce`
-/// returns to `.idle` on its own — the user is assumed to have walked away
-/// (docs/sdd.md §11.3 rule 6).
-public let pomodoroAutoStopOvertimeSecs: Int64 = 1800
-
 public enum PomodoroPhase: String, Equatable, Sendable, Codable {
     case idle = "Idle"
     case focus = "Focus"
@@ -105,11 +100,9 @@ public func pomodoroReduce(_ state: PomodoroState, _ event: PomodoroEvent, now: 
             next.phase = .focusEnded
         case .brk where raw >= state.breakSecs:
             next.phase = .breakEnded
-        case .focusEnded, .breakEnded:
-            guard raw - phaseDuration(state) >= pomodoroAutoStopOvertimeSecs else { return state }
-            next.phase = .idle
-            next.phaseStartedAt = nil
         default:
+            // `*Ended` never times out on its own — it keeps alerting until the
+            // user acts (docs/sdd.md §11.3).
             return state
         }
     }

@@ -21,7 +21,7 @@ final class StatusItemController: NSObject {
     var onSelect: (() -> Void)?
 
     private var phase: PomodoroPhase = .idle
-    /// Morning "start your first focus" nudge (docs/sdd.md §11.4 step 8). Flashes
+    /// Idle "start a focus" nudge (docs/sdd.md §11.4 step 8). Flashes
     /// the item amber while idle; the `*Ended` alert outranks it.
     private var nudging = false
     private var flashOn = true
@@ -64,14 +64,14 @@ final class StatusItemController: NSObject {
         updateFlashing()
     }
 
-    /// Called from the UI when the morning nudge turns on or off (docs/sdd.md §11.4 step 8).
+    /// Called from the UI when the idle nudge turns on or off (docs/sdd.md §11.4 step 8).
     func setPomodoroNudge(_ on: Bool) {
         nudging = on
         updateFlashing()
     }
 
     /// (Re)start or stop the flash timer and Dock bounce for whichever reason the
-    /// item should be drawing attention: the `*Ended` alert, or the morning nudge.
+    /// item should be drawing attention: the `*Ended` alert, or the idle nudge.
     private func updateFlashing() {
         let alerting = phase == .focusEnded || phase == .breakEnded
         let shouldFlash = alerting || (nudging && phase == .idle)
@@ -89,7 +89,7 @@ final class StatusItemController: NSObject {
             flashTimer = nil
         }
 
-        // The Dock bounce is reserved for the `*Ended` alert — the morning nudge
+        // The Dock bounce is reserved for the `*Ended` alert — the idle nudge
         // is the gentler of the two and only flashes the menu-bar item.
         if alerting {
             if attentionRequest == nil {
@@ -123,7 +123,7 @@ final class StatusItemController: NSObject {
     {
         let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         let alerting = phase == .focusEnded || phase == .breakEnded
-        // The amber morning nudge shows only while idle and not alerting.
+        // The amber idle nudge shows only while idle and not alerting.
         let nudge = nudging && phase == .idle && !alerting
         let symbolName = (phase == .idle && !nudge) ? "square.grid.2x2" : "timer"
         // Everything past `alerting` also covers the nudge: a non-template image

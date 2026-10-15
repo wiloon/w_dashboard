@@ -33,15 +33,14 @@ final class ConfigPomodoroTests: XCTestCase {
         XCTAssertEqual(cfg.pomodoro.breakMinutes, 5)
         XCTAssertTrue(cfg.pomodoro.notify)
         XCTAssertTrue(cfg.pomodoro.sound)
-        XCTAssertTrue(cfg.pomodoro.morningNudge)
-        XCTAssertEqual(cfg.pomodoro.morningNudgeAfterMinutes, 9 * 60)
+        XCTAssertTrue(cfg.pomodoro.idleNudge)
     }
 
     func testFullSectionIsParsed() throws {
         let path = tempConfigPath("full")
         try write(
             path,
-            "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nmorning_nudge = false\nmorning_nudge_after = \"08:30\"\n"
+            "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nidle_nudge = false\n"
         )
 
         let cfg = try loadConfig(path: path)
@@ -50,21 +49,15 @@ final class ConfigPomodoroTests: XCTestCase {
         XCTAssertEqual(cfg.pomodoro.breakMinutes, 10)
         XCTAssertFalse(cfg.pomodoro.notify)
         XCTAssertFalse(cfg.pomodoro.sound)
-        XCTAssertFalse(cfg.pomodoro.morningNudge)
-        XCTAssertEqual(cfg.pomodoro.morningNudgeAfterMinutes, 8 * 60 + 30)
+        XCTAssertFalse(cfg.pomodoro.idleNudge)
     }
 
-    func testMalformedMorningNudgeAfterIsAnError() throws {
-        let path = tempConfigPath("bad_nudge_after")
-        try write(path, "[pomodoro]\nmorning_nudge_after = \"9am\"\n")
+    func testLegacyMorningNudgeKeysAreIgnored() throws {
+        let path = tempConfigPath("legacy_nudge")
+        try write(path, "[pomodoro]\nmorning_nudge = false\nmorning_nudge_after = \"9am\"\n")
 
-        XCTAssertThrowsError(try loadConfig(path: path)) { error in
-            guard case ConfigError.parse(let msg) = error else {
-                return XCTFail("expected ConfigError.parse, got \(error)")
-            }
-            XCTAssertTrue(
-                msg.contains("morning_nudge_after"), "message should name the field: \(msg)")
-        }
+        let cfg = try loadConfig(path: path)
+        XCTAssertTrue(cfg.pomodoro.idleNudge)
     }
 
     func testPartialSectionFillsMissingWithDefaults() throws {

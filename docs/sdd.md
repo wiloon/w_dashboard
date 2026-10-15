@@ -132,11 +132,9 @@ break_minutes = 5
 notify = true
 # 时段结束时播放一次提示音
 sound = true
-# 每天早上（北京时间）过了 morning_nudge_after 还没开第一个专注，就闪托盘/菜单栏图标提醒；
-# 当天开过一次专注即停。false = 不做早晨提醒。
-morning_nudge = true
-# 早晨提醒的起始时刻（"HH:MM" 24 小时，北京时间）
-morning_nudge_after = "09:00"
+# 空闲提醒：只要停在 Idle（没有在专注 / 休息计时），就一直闪托盘/菜单栏图标（琥珀色），
+# 提醒开下一个番茄钟。false = Idle 时图标保持静默。
+idle_nudge = true
 
 [network]
 # 是否启用`Network`标签页与探测；false 时不显示标签、不跑任何探测（见 §12）
@@ -187,7 +185,7 @@ port = 443
 
 配置加载规则（各端按同一规格实现）：
 - 文件不存在时返回内置默认配置（空 repos、默认时钟北京/纽约、weather 未配置则天气面板显示"未配置"、pomodoro `enabled=true` 且 25/5/true/true）。
-- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`morning_nudge_after` 非 `"HH:MM"`、`[network]` / `[[network_targets]]` 越界或缺字段，见 §12.2）返回带字段定位的明确错误，UI 展示为可读提示。
+- 字段缺失走默认值；非法值（如非法 tz id、缺少 location 与经纬度、`focus_minutes`/`break_minutes <= 0`、`[network]` / `[[network_targets]]` 越界或缺字段，见 §12.2）返回带字段定位的明确错误，UI 展示为可读提示。
 - `~` 与环境变量需统一展开。`~` = 当前用户 home（Windows 为 `%USERPROFILE%`）；环境变量支持 `$VAR` / `${VAR}`，Windows 另支持 `%VAR%`。
 - 配置文件按 UTF-8 读取，兼容 LF 与 CRLF 换行、兼容带 BOM 的文件。
 - **仓库路径的比较**（去重、§4.1 按路径定位、§8.1 种子行按 `path` 匹配）：先展开 `~` / 环境变量再比较字符串。Linux / macOS 按展开后的字符串精确比较；Windows 额外规范化（`/` 统一为 `\`、去掉尾部分隔符）并**不区分大小写**（NTFS 路径默认不区分大小写）。
@@ -629,7 +627,7 @@ porcelain v2 计数规则（精确）：
 `Dashboard`的**信息条目 5 项**（§1 概述 1–5），呈现为**四个视觉分区**，**从上到下**依次如下（顺序各端一致；布局细节可各端适配）：
 
 1. **当下（Now）**（置顶）：一张卡，左半**番茄钟**、右半**时钟**——都是"瞬时状态"（见 [ADR-013](architecture/adr-013-now-panel-merge.md)）。
-   - **番茄钟子区域**：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、**环形进度环**（进度 = §11.2 的 `progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase；`*Ended` 整环填满并变色）；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时番茄钟子区域隐藏，卡片退化为纯时钟。详见 §11。番茄钟放在最上面是因为它是唯一需要主动操作的部分，其余都是只读监视；`*Ended` 高亮边框与早晨提醒的琥珀提示**只作用于番茄钟子区域**，不波及右半时钟。
+   - **番茄钟子区域**：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss` 超时）、**环形进度环**（进度 = §11.2 的 `progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase；`*Ended` 整环填满并变色）；两个按钮——一个**主切换按钮**（ADR-012 「Next」）+ `Stop`。主按钮的文案与它触发的事件都由 phase 决定：`Focus`/`FocusEnded` → `Start break`（发 `StartBreak`），其余 phase（`Idle`/`Break`/`BreakEnded`）→ `Start focus`（发 `StartFocus`）；在 `*Ended` phase 点它同时完成"确认"。`Stop` 在 `Idle` 时禁用。`pomodoro.enabled == false` 时番茄钟子区域隐藏，卡片退化为纯时钟。详见 §11。番茄钟放在最上面是因为它是唯一需要主动操作的部分，其余都是只读监视；`*Ended` 高亮边框与空闲提醒的琥珀提示**只作用于番茄钟子区域**，不波及右半时钟。
    - **时钟子区域**：每个配置时区一列（label + 当前时间），实时更新。日期可省略或缩为小字 / hover 查看。
    - **落地状态**：macOS 已按此合并（ADR-013），Windows 按此实现（ADR-015）；**Linux Slint 主窗口待跟进**——在跟进前可保留"番茄钟单行置顶 + 时钟单独卡"，只要信息顺序不变（§9 允许布局各端适配）。KDE plasmoid（`app-linux/plasmoid/`）是面板小组件、对应 macOS 菜单栏项，已把北京时钟 + phase 并在一起，不受本条影响。
 2. **Repos**：分区标题行有 `Manage…`（打开 §4.1 的 `Manage repos` 对话框）与整体 `Refresh` 按钮。列表/卡片，显示 name、branch、状态徽标（颜色区分 Clean/Dirty/NeedsPush/NeedsPull/Diverged/NoUpstream/Error），可展开看 ahead/behind 与文件计数；显示 `last_fetch_at`。每行按 §7.5 的 `allowed_actions` 显示 Pull / Push 按钮（Fetch 按钮仅在 `general.fetch_remote == false` 时显示，见 §7.5）：执行期间禁用并显示进行中文案，结束后自动重采该行并在 name 那一行**同行内**显示一行结果（成功绿 / 失败红，过长则省略号截断、hover 看全文），不另占纵向空间以免行高参差；结果在下次整体刷新时清除。每行还有一个小的**单行刷新图标按钮**（双箭头循环图标；刷新中转圈/半透明），只重采该行（见 §8、§8.1 的"定向单行采集"），任何状态下都可用（含 `Error` 行）。
@@ -645,12 +643,12 @@ porcelain v2 计数规则（精确）：
 
 **通用行为**：
 - **单击（Windows 为左键单击）唤起主窗口**：窗口已最小化则还原，已隐藏则重新显示，然后置于前台。
-- **图标状态**随番茄钟 phase / 早晨提醒变化，规则见 §11.4 步骤 3 与步骤 8。
+- **图标状态**随番茄钟 phase / 空闲提醒变化，规则见 §11.4 步骤 3 与步骤 8。
 - **北京时间**：常驻图标展示北京时间（`Asia/Shanghai`，24 小时制 `HH:mm`），在分钟翻转时更新，与 `[[clocks]]` 配置无关。各端展示位置不同：
 
 | 端 | 北京时间展示 | 番茄钟状态文字 |
 |----|--------------|----------------|
-| macOS | 菜单栏项直接画「图标 + `HH:mm`」一张图（`*Ended` / 早晨提醒时整张图一起着色闪烁） | 无（看图标颜色） |
+| macOS | 菜单栏项直接画「图标 + `HH:mm`」一张图（`*Ended` / 空闲提醒时整张图一起着色闪烁） | 无（看图标颜色） |
 | Windows | 托盘图标只有 16×16，放不下文字，**只显示图标**；北京时间放 tooltip 第一行 | tooltip 第二行 |
 | Linux | StatusNotifierItem 不显示时间（北京时间由 KDE plasmoid 面板小组件显示） | SNI title / tooltip |
 
@@ -661,7 +659,7 @@ porcelain v2 计数规则（精确）：
     | 状态 | 文案 |
     |------|------|
     | `Idle` | `Pomodoro: idle` |
-    | `Idle` 且早晨提醒生效 | `Pomodoro: start your first focus` |
+    | `Idle` 且空闲提醒生效 | `Pomodoro: idle — start a focus` |
     | `Focus` | `Pomodoro: focusing · mm:ss left` |
     | `Break` | `Pomodoro: break · mm:ss left` |
     | `FocusEnded` | `Pomodoro: focus done — take a break` |
@@ -673,7 +671,7 @@ porcelain v2 计数规则（精确）：
 - Linux：`Start focus` / `Start break` / `Stop`（`Stop` 在 `Idle` 时禁用），触发对应 `PomodoroEvent`。
 - Windows：`Start focus` / `Start break` / `Stop` / 分隔线 / `Exit`。`Stop` 在 `Idle` 时禁用；`pomodoro.enabled == false` 时只有 `Exit`。`Exit` 真正退出进程。
 - macOS：当前无菜单（单击即唤起窗口），可后续补齐。
-- 通过菜单触发的 `StartFocus` 与面板按钮等价（含更新早晨提醒的"当天已开过专注"，§11.4 步骤 8）。
+- 通过菜单触发的 `StartFocus` / `StartBreak` / `Stop` 与面板按钮等价。
 
 **主窗口生命周期**：
 - 关闭主窗口**不退出应用**：番茄钟计时、托盘闪烁、定时刷新、网络探测继续运行；通过常驻图标再次唤起。
@@ -720,7 +718,7 @@ porcelain v2 计数规则（精确）：
 5. **weather-json/**：`input` = Open-Meteo `forecast` 返回 JSON（含正常、缺字段、空 daily 等用例）；`expected` = `WeatherReport`（含降级表现）。
 6. **wmo-codes**：weather_code → 文案 的完整映射表（各端共同引用，避免文案分叉）。
 7. **pomodoro/**：`input` = `{ phase, phase_started_at, focus_secs, break_secs, now }`；`expected` = `PomodoroView`。须覆盖每个 phase、临界（`elapsed == duration`）、overtime、`Idle`。锁定 `pomodoro_view` 各端一致（§11.2）。
-8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + 自动收工阈值（规则 6）上下边界。锁定 `pomodoro_reduce` 各端一致。
+8. **pomodoro-transition/**：`input` = `{ state, event, now }`；`expected` = 迁移后的 `PomodoroState`。须覆盖 §11.3 的每条迁移规则 + `Tick` 触发 `*Ended` 的临界 + `*Ended` 超时很久（数小时）`Tick` 仍不变（无自动收工）。锁定 `pomodoro_reduce` 各端一致。
 9. **ping-output/**：`input` = `{ "text": <ping 原始输出> }`；`expected` = `{ sent, rtts_ms }` 或 `{ "error": "Parse" }`。覆盖 macOS 与 Linux iputils 格式、部分丢包、全丢、`DUP!`、无统计行（§12.3）。**Windows 端不适用**：Windows 用 `Ping` API 直接取 RTT、不解析文本（ADR-015），因此不实现 `parse_ping`、不跑本类向量。
 10. **probe-stats/**：`input` = `{ sent, rtts_ms }`；`expected` = `ProbeStats`。覆盖奇/偶数中位数、`received` 0 / 1 / ≥2、取整边界、`sent == 0`（§12.3）。
 11. **probe-group/**：`input` = `{ group, results }`；`expected` = `GroupSummary` 或 `null`。覆盖最佳目标选择、同值取先、全组丢失、空组（§12.4）。
@@ -754,7 +752,7 @@ porcelain v2 计数规则（精确）：
 | 层 | 内容 | 性质 | 测试 |
 |----|------|------|------|
 | 纯逻辑 | `pomodoro_view`（状态 → 展示数据）、`pomodoro_reduce`（状态迁移） | 确定性纯函数 | **测试向量**（§10.2 的 `pomodoro/` 与 `pomodoro-transition/`）+ 各端单测 |
-| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音、早晨提醒（§11.4 第 8 项） | 有副作用、各端机制不同 | 无向量；各端对照本节可观察行为走查 |
+| UI 层 | 1 秒 tick 定时器、面板渲染、托盘图标状态机、系统通知、提示音、空闲提醒（§11.4 第 8 项） | 有副作用、各端机制不同 | 无向量；各端对照本节可观察行为走查 |
 
 数据模型见 §5.6。番茄钟状态是**内存中唯一的一份 `PomodoroState`**，不写盘，应用重启后回到 `Idle`（ADR-012：符合 ADR-001「无数据库」）。
 
@@ -779,8 +777,6 @@ porcelain v2 计数规则（精确）：
 
 `PomodoroEvent ∈ { StartFocus, StartBreak, Stop, Tick }`
 
-规则 6 里 `duration` = `FocusEnded` 取 `state.focus_secs`、`BreakEnded` 取 `state.break_secs`。
-常量 `AUTO_STOP_OVERTIME_SECS = 1800`（超时提醒 30 分钟无人确认 → 视为人已离开，自动收工）。
 
 | 序 | 条件 | 结果 state |
 |----|------|-----------|
@@ -789,18 +785,16 @@ porcelain v2 计数规则（精确）：
 | 3 | `event == Stop` | `{ phase: Idle, phase_started_at: null, focus_secs, break_secs }` |
 | 4 | `event == Tick` 且 `phase == Focus` 且 `now - phase_started_at >= focus_secs` | `phase → FocusEnded`（其余字段不变）|
 | 5 | `event == Tick` 且 `phase == Break` 且 `now - phase_started_at >= break_secs` | `phase → BreakEnded`（其余字段不变）|
-| 6 | `event == Tick` 且 `phase ∈ { FocusEnded, BreakEnded }` 且 `now - phase_started_at - duration >= AUTO_STOP_OVERTIME_SECS` | `{ phase: Idle, phase_started_at: null, focus_secs, break_secs }` |
-| 7 | 其余（含 `Tick` 在 `Idle` / `*Ended` 未超阈值 / `Focus`/`Break` 未到时）| state 不变 |
+| 6 | 其余（含 `Tick` 在 `Idle` / `*Ended`（无论超时多久）/ `Focus`/`Break` 未到时）| state 不变 |
 
 - **时长冻结**：`reduce` 只读 `state.focus_secs` / `state.break_secs`，从不读配置——一旦进入一个时段，它的目标时长就定死在 state 里，中途改配置不影响正在跑的（含 `*Ended`）时段。配置的时长变更由 **UI 层**注入：仅当 `phase == Idle` 时，把最新配置的 `focus_minutes*60` / `break_minutes*60` 写回 `state`；非 `Idle` 时不写，等下次回到 `Idle` 再生效（见 §11.4 步骤 7）。
-- **自动收工**（规则 6）：`*Ended` 持续超时满 30 分钟仍无人点按钮，`reduce` 自己把 phase 收回 `Idle`，UI 随之停止闪烁、复位图标（等同用户点了 Stop）。这是 ADR-012 问答里确认的行为。
-- `*Ended` 在未达自动收工阈值前是终态，只由用户显式 `StartFocus` / `StartBreak` / `Stop` 退出——不自动切到下一段（ADR-012：手动 + 持续提醒）。
+- **无自动收工**：`*Ended` 是终态，只由用户显式 `StartFocus` / `StartBreak` / `Stop` 退出——不自动切到下一段，也**不会因超时太久自动回 `Idle`**（ADR-012 修订 2026-10-13：早先的"30 分钟自动收工"让番茄钟悄悄进入静默，用户容易忘了开；现在任何非计时状态都持续提醒，见 §11.4 步骤 8）。
 - "确认"没有独立事件：用户点面板任一按钮即产生对应的 `Start*` / `Stop`，UI 据此停止提醒（§11.4 步骤 5）。
 
 ### 11.4 UI 层职责（各端各自实现，不进向量）
 
 1. **1 秒 tick**：Slint `Timer` / SwiftUI `Timer` / WinUI `DispatcherQueueTimer` 每秒 `state = pomodoro_reduce(state, Tick, now)`，再 `pomodoro_view` 重渲染。与时钟每秒刷新（ADR-006）同类，独立于快照采集。
-2. **面板**（§9 置顶「当下」卡片的番茄钟子区域，见 ADR-013）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、**环形进度环**（进度取 `pomodoro_view.progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase，`*Ended` 整环填满并变色）、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。`*Ended` 高亮边框、早晨提醒的琥珀提示只包住这个子区域，不波及同卡右半的时钟。环形进度环是纯展示、无逻辑、不进向量（同 ADR-006 时钟由各端 UI 自绘）。macOS 已按此实现，Windows 照此实现；Linux（Slint 主窗口 + plasmoid）待跟进，跟进前可用横向进度条 + 独立分区。
+2. **面板**（§9 置顶「当下」卡片的番茄钟子区域，见 ADR-013）：phase 标签、剩余 `mm:ss`（`*Ended` 显示 `+mm:ss`）、**环形进度环**（进度取 `pomodoro_view.progress`，`mm:ss` / `+mm:ss` 居中，环色随 phase，`*Ended` 整环填满并变色）、主切换按钮 + `Stop`（主按钮文案/事件随 phase 走，见 §9 第 1 项；`*Ended` 时点主按钮即"确认"并进入下一段，点 `Stop` 即"确认"并回 `Idle`）。`*Ended` 高亮边框、空闲提醒的琥珀提示只包住这个子区域，不波及同卡右半的时钟。环形进度环是纯展示、无逻辑、不进向量（同 ADR-006 时钟由各端 UI 自绘）。macOS 已按此实现，Windows 照此实现；Linux（Slint 主窗口 + plasmoid）待跟进，跟进前可用横向进度条 + 独立分区。
 3. **托盘 / 菜单栏图标状态机**（由 `phase` / `alerting` 驱动）：
 
    | phase | 图标 |
@@ -810,7 +804,7 @@ porcelain v2 计数规则（精确）：
    | `FocusEnded` | **闪烁**：UI 定时器 ~1.5 Hz 在「红色」与「暗/透明」间切换图标 |
    | `BreakEnded` | **闪烁**：同上，用「橙色」 |
 
-   `Idle` 且早晨提醒生效时（见下方第 8 项）图标改为**琥珀色闪烁**；其余四个 phase 的图标不受早晨提醒影响。
+   `Idle` 且空闲提醒生效时（见下方第 8 项，缺省即生效）图标改为**琥珀色闪烁**；其余四个 phase 的图标不受空闲提醒影响。
 
    - Linux：StatusNotifierItem，`ksni` crate（独立 D-Bus 线程），提供右键菜单项（开始专注 / 开始休息 / 停止）触发对应事件。图标为代码生成的 ARGB32 色块（v1；后续可换成 ADR-012 的番茄剪影 PNG）。
    - macOS：切换 `NSStatusItem.button.image`（`timer` SF Symbol，`*Ended` 用 `paletteColors` 上红/橙非模板色）；进入 `*Ended` 叠加 `NSApp.requestUserAttention(.criticalRequest)` 让 Dock 图标跳动，确认时 `cancelUserAttentionRequest`。
@@ -820,23 +814,18 @@ porcelain v2 计数规则（精确）：
    - `notify == true` → 一条系统通知。macOS `osascript -e 'display notification …'` 子进程（不需打包/授权，也延续 ADR-003 "shell out"）；Linux `notify-send` 子进程；Windows App SDK `AppNotificationManager`（不打包模式，启动时 `Register()` 一次）。标题 `w_dashboard`；正文：专注结束 `Focus session done — time to get up and move.` / 休息结束 `Break's over — ready to focus?`（与 macOS / Linux 现有文案一致）。
    - `sound == true` **且进入的是 `FocusEnded`** → 播一次提示音。macOS `NSSound(named: "Glass")`；Linux `canberra-gtk-play -i complete` 或 `paplay …/complete.oga` 子进程；Windows `PlaySound` 播系统声音别名 `SystemNotification`（异步）。**`BreakEnded` 不响提示音**——休息结束的提醒比专注结束弱一档（ADR-012 问答确认）：`FocusEnded` = 闪红 + 通知 + 提示音；`BreakEnded` = 闪橙 + 通知，不响。
    - 子进程 / 通知失败 **静默降级**（延续 SDD §2、AGENTS.md：单项失败不拖垮整体）。
-5. **确认**（用户点任意 `Start …` / `Stop`，或规则 6 自动收工）：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`（macOS）/ `FlashWindowEx(FLASHW_STOP)`（Windows）。
+5. **确认**（用户点任意 `Start …` / `Stop`）：停止图标闪烁定时器、复位图标、取消 `requestUserAttention`（macOS）/ `FlashWindowEx(FLASHW_STOP)`（Windows）。
 6. **无 SNI host 兜底（Linux）**：启动时检测不到 `org.kde.StatusNotifierWatcher` 时，`*Ended` 态改为——面板内大号高亮横幅 + 窗口标题加前缀 `⏰`；其余行为不变。
 7. **配置加载**：各端目前都**没有配置文件热重载**（`[pomodoro]` 只在启动时读一次；改了番茄钟设置需重启，重启本就回 `Idle`，与"状态不持久化"一致）。**若**将来加了热重载，按下述规则处理，且这几条都属 UI 层、不进向量：
    - `pomodoro.enabled` 由 `true` 变 `false`：立即对 state 施加 `Stop`（回 `Idle`）、隐藏该分区、注销托盘图标状态；由 `false` 变 `true`：显示分区、注册托盘、state 为 `Idle`。
    - `focus_minutes` / `break_minutes` 变化：仅当 `phase == Idle` 时把新值写回 `state.focus_secs` / `state.break_secs`；非 `Idle` 时不动，等回到 `Idle` 再写（配合 §11.3「时长冻结」——`state` 里冻结的那份才是权威）。
    - `notify` / `sound` 变化：下一次进入 `*Ended` 时按新值执行。
-   - `morning_nudge` / `morning_nudge_after` 变化：下一个 tick 起按新值重算判据（见步骤 8）。
-8. **早晨提醒（morning nudge）**：每天早上没开第一个专注就闪图标提醒用户。**纯 UI 层**——判据读的是北京墙上时钟，不进 `PomodoroState`、不进向量（和时钟每秒刷新同类）。
-   - **判据**（每 1 秒 tick 重算一次）——以下**全部**成立时提醒生效：
-     1. `pomodoro.enabled` 且 `pomodoro.morning_nudge`；
-     2. 当前 `phase == Idle`；
-     3. 当天（北京日历日，`Asia/Shanghai`）还没有 `StartFocus` 事件发生过；
-     4. 北京墙上时刻 ≥ `pomodoro.morning_nudge_after`（`"HH:MM"`，缺省 `09:00`）。
-   - **不分工作日 / 周末**——每天都提醒（作者确认）。
-   - **提醒方式**：托盘 / 菜单栏图标以 `*Ended` 同频（~1.5 Hz）闪烁，颜色为**琥珀色**（`#F5A623`，与 `*Ended` 的红/橙区分开）；窗口标题（Linux）加 `⏰` 前缀。**不发系统通知、不响提示音**——比 `*Ended` 弱一档，只闪图标（用户原始诉求）。macOS 不叠加 Dock 跳动，Windows 不闪任务栏按钮。
-   - **`*Ended` 优先**：真进入 `*Ended` 说明当天已开过时段，判据 3 自然不再成立；万一并存，`*Ended` 的红/橙闪烁压过早晨提醒。
-   - **状态**：只记「最近一次 `StartFocus` 的北京日历日」一份内存值，`StartFocus` 时写入（面板主按钮或托盘菜单皆可触发）。**不持久化**——重启后该值清空，提醒会重新出现（与"番茄钟状态不跨重启"一致，ADR-012）。
+   - `idle_nudge` 变化：下一个 tick 起按新值重算判据（见步骤 8）。
+8. **空闲提醒（idle nudge）**：只要番茄钟没有在计时（`Focus` / `Break`），图标就一直闪，提醒用户保持节奏——`*Ended` 闪红 / 橙（步骤 3），`Idle` 闪琥珀。番茄钟**没有"静默"的状态**（ADR-012 修订 2026-10-13，取代早先"每天早上开第一个专注前才闪"的早晨提醒）。**纯 UI 层**，不进 `PomodoroState`、不进向量。
+   - **判据**（每 1 秒 tick 重算一次）：`pomodoro.enabled` 且 `pomodoro.idle_nudge` 且 `phase == Idle`。无时间窗口、不分工作日 / 周末、不看当天是否开过专注。应用启动即 `Idle`，所以启动后立即开始闪。
+   - **提醒方式**：托盘 / 菜单栏图标以 `*Ended` 同频（~1.5 Hz）闪烁，颜色为**琥珀色**（`#F5A623`，与 `*Ended` 的红/橙区分开）；窗口标题（Linux）加 `⏰` 前缀。**不发系统通知、不响提示音**——比 `*Ended` 弱一档，只闪图标。macOS 不叠加 Dock 跳动，Windows 不闪任务栏按钮。
+   - **`*Ended` 优先**：`*Ended` 时不是 `Idle`，判据自然不成立；红/橙闪烁照常。
+   - **不影响系统休眠**：闪烁只靠普通 UI 定时器切图标，**不得**持有任何阻止休眠 / 息屏的电源断言（macOS `IOPMAssertion` / `ProcessInfo.beginActivity(.idleSystemSleepDisabled…)`、Windows `SetThreadExecutionState(ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED)`、Linux `org.freedesktop.ScreenSaver.Inhibit` / `systemd-inhibit` 等）。系统照常按自身策略锁屏、休眠；唤醒后下一个 tick 自然恢复（`Focus` / `Break` 期间睡过头则唤醒即进入 `*Ended` 闪烁）。
 
 ### 11.5 番茄钟非目标（v1，见 ADR-012）
 

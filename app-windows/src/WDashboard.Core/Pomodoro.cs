@@ -30,9 +30,6 @@ public sealed record PomodoroView(
 
 public static class Pomodoro
 {
-    /// <summary>An unacknowledged <c>*Ended</c> phase this old returns to idle (§11.3 rule 6).</summary>
-    public const long AutoStopOvertimeSecs = 1800;
-
     public static bool IsAlerting(PomodoroPhase phase) =>
         phase is PomodoroPhase.FocusEnded or PomodoroPhase.BreakEnded;
 
@@ -54,8 +51,7 @@ public static class Pomodoro
         {
             PomodoroPhase.Focus when raw >= state.FocusSecs => state with { Phase = PomodoroPhase.FocusEnded },
             PomodoroPhase.Break when raw >= state.BreakSecs => state with { Phase = PomodoroPhase.BreakEnded },
-            PomodoroPhase.FocusEnded or PomodoroPhase.BreakEnded when raw - Duration(state) >= AutoStopOvertimeSecs =>
-                state with { Phase = PomodoroPhase.Idle, PhaseStartedAt = null },
+            // *Ended never times out on its own; it keeps alerting until the user acts (§11.3).
             _ => state,
         };
     }

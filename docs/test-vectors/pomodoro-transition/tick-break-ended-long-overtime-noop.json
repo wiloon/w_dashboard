@@ -7,11 +7,11 @@
       "break_secs": 300
     },
     "event": "Tick",
-    "now": 1700002700
+    "now": 1700030000
   },
   "expected": {
-    "phase": "Idle",
-    "phase_started_at": null,
+    "phase": "BreakEnded",
+    "phase_started_at": 1700000000,
     "focus_secs": 1500,
     "break_secs": 300
   }

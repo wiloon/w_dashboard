@@ -61,7 +61,7 @@ mod imp {
     /// Flash half-period.
     const FLASH_INTERVAL: Duration = Duration::from_millis(650);
     const ICON_SIZE: i32 = 32;
-    /// Amber — the morning "start your first focus" nudge (docs/sdd.md §11.4 step 8).
+    /// Amber — the idle "start a focus" nudge (docs/sdd.md §11.4 step 8).
     /// Distinct from the `*Ended` red/orange so the two reasons to flash read apart.
     const NUDGE_RGB: (u8, u8, u8) = (0xf5, 0xa6, 0x23);
 
@@ -107,7 +107,7 @@ mod imp {
         disc_icon_rgb(phase_rgb(phase), dim)
     }
 
-    /// A filled disc in an explicit colour (used for the amber morning nudge).
+    /// A filled disc in an explicit colour (used for the amber idle nudge).
     fn disc_icon_rgb((r, g, b): (u8, u8, u8), dim: bool) -> ksni::Icon {
         let alpha: u8 = if dim { 55 } else { 255 };
         let mut data = vec![0u8; (ICON_SIZE * ICON_SIZE * 4) as usize];
@@ -135,7 +135,7 @@ mod imp {
 
     struct Tray {
         phase: PomodoroPhase,
-        /// Morning "start your first focus" nudge (docs/sdd.md §11.4 step 8).
+        /// Idle "start a focus" nudge (docs/sdd.md §11.4 step 8).
         /// Flashes amber while `phase == Idle`; the `*Ended` alert outranks it.
         nudging: bool,
         /// Toggled by the flash thread; only affects rendering while alerting or nudging.
@@ -144,14 +144,14 @@ mod imp {
     }
 
     impl Tray {
-        /// The amber morning nudge shows only while idle and not alerting.
+        /// The amber idle nudge shows only while idle and not alerting.
         fn showing_nudge(&self) -> bool {
             self.nudging && !is_alerting(self.phase)
         }
 
         fn tray_title(&self) -> &'static str {
             if self.showing_nudge() {
-                "Pomodoro: start your first focus"
+                "Pomodoro: idle — start a focus"
             } else {
                 phase_title(self.phase)
             }
@@ -238,7 +238,7 @@ mod imp {
             }
         }
 
-        /// Called from the UI thread when the morning nudge turns on or off
+        /// Called from the UI thread when the idle nudge turns on or off
         /// (docs/sdd.md §11.4 step 8).
         pub fn set_nudging(&self, nudging: bool) {
             *self.nudging.lock().unwrap() = nudging;

@@ -19,7 +19,7 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 # 2. Copy into ~/Applications (replace any previous install).
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALLED_APP"
-cp -R "dist/$APP_NAME" "$INSTALLED_APP"
+cp -R "dist.noindex/$APP_NAME" "$INSTALLED_APP"
 echo "Installed $INSTALLED_APP"
 
 # 3. Nudge Spotlight to index it now instead of whenever it gets around to it.

@@ -5,11 +5,6 @@
 //! shared test vectors (`docs/test-vectors/pomodoro*/`). The 1s tick, tray icon,
 //! notifications and sound live in the UI layer (`main.rs`), never here.
 
-/// After a `*Ended` phase has been unacknowledged for this long, `pomodoro_reduce`
-/// returns to `Idle` on its own — the user is assumed to have walked away
-/// (docs/sdd.md §11.3 rule 6).
-pub const AUTO_STOP_OVERTIME_SECS: i64 = 1800;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PomodoroPhase {
     Idle,
@@ -156,15 +151,8 @@ pub fn pomodoro_reduce(state: PomodoroState, event: PomodoroEvent, now: i64) -> 
                     phase: PomodoroPhase::BreakEnded,
                     ..state
                 },
-                PomodoroPhase::FocusEnded | PomodoroPhase::BreakEnded
-                    if raw - phase_duration(&state) >= AUTO_STOP_OVERTIME_SECS =>
-                {
-                    PomodoroState {
-                        phase: PomodoroPhase::Idle,
-                        phase_started_at: None,
-                        ..state
-                    }
-                }
+                // `*Ended` never times out on its own — it keeps alerting until
+                // the user acts (docs/sdd.md §11.3).
                 _ => state,
             }
         }

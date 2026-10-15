@@ -23,8 +23,7 @@ fn absent_section_uses_defaults() {
     assert_eq!(cfg.pomodoro.break_minutes, 5);
     assert!(cfg.pomodoro.notify);
     assert!(cfg.pomodoro.sound);
-    assert!(cfg.pomodoro.morning_nudge);
-    assert_eq!(cfg.pomodoro.morning_nudge_after_minutes, 9 * 60);
+    assert!(cfg.pomodoro.idle_nudge);
     assert!(cfg.pomodoro.tray_icon);
 
     fs::remove_file(&path).ok();
@@ -35,7 +34,7 @@ fn full_section_is_parsed() {
     let path = temp_config_path("full");
     fs::write(
         &path,
-        "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nmorning_nudge = false\nmorning_nudge_after = \"08:30\"\ntray_icon = false\n",
+        "[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nidle_nudge = false\ntray_icon = false\n",
     )
     .unwrap();
 
@@ -45,24 +44,23 @@ fn full_section_is_parsed() {
     assert_eq!(cfg.pomodoro.break_minutes, 10);
     assert!(!cfg.pomodoro.notify);
     assert!(!cfg.pomodoro.sound);
-    assert!(!cfg.pomodoro.morning_nudge);
-    assert_eq!(cfg.pomodoro.morning_nudge_after_minutes, 8 * 60 + 30);
+    assert!(!cfg.pomodoro.idle_nudge);
     assert!(!cfg.pomodoro.tray_icon);
 
     fs::remove_file(&path).ok();
 }
 
 #[test]
-fn malformed_morning_nudge_after_is_an_error() {
-    let path = temp_config_path("bad_nudge_after");
-    fs::write(&path, "[pomodoro]\nmorning_nudge_after = \"9am\"\n").unwrap();
+fn legacy_morning_nudge_keys_are_ignored() {
+    let path = temp_config_path("legacy_nudge");
+    fs::write(
+        &path,
+        "[pomodoro]\nmorning_nudge = false\nmorning_nudge_after = \"9am\"\n",
+    )
+    .unwrap();
 
-    let err = config::load_config(Some(&path)).unwrap_err();
-    assert!(matches!(err, ConfigError::Parse(_)), "expected Parse error, got {err:?}");
-    assert!(
-        err.to_string().contains("morning_nudge_after"),
-        "message should name the field: {err}"
-    );
+    let cfg = config::load_config(Some(&path)).unwrap();
+    assert!(cfg.pomodoro.idle_nudge);
 
     fs::remove_file(&path).ok();
 }

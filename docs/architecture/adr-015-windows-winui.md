@@ -30,7 +30,7 @@ chezmoi 面板各端都尚未实现，Windows 端同样暂缓。
 | 托盘显示 | 托盘图标 16×16 放不下文字：**只显示图标**（随番茄钟阶段变色 / 闪烁），北京时间与阶段信息放 tooltip |
 | 关闭窗口 | **隐藏到托盘、进程继续**（番茄钟不中断）；托盘菜单 `Exit` 才真正退出 |
 | 托盘交互 | 左键唤起主窗口；右键菜单 `Start focus` / `Start break` / `Stop` / `Exit` |
-| 任务栏闪烁 | `*Ended` 时托盘闪烁 **+ 任务栏按钮闪烁**（`FlashWindowEx`，对应 macOS Dock 跳动）；早晨提醒不闪任务栏 |
+| 任务栏闪烁 | `*Ended` 时托盘闪烁 **+ 任务栏按钮闪烁**（`FlashWindowEx`，对应 macOS Dock 跳动）；空闲提醒不闪任务栏 |
 | 打包分发 | **不打 MSIX**：自包含发布目录 + PowerShell 安装脚本（开始菜单快捷方式 + `HKCU\…\Run` 开机自启） |
 | 最低系统 | **只支持 Windows 11** |
 | 网关 ping | **用 .NET `Ping` 类**取每次 RTT，不解析 `ping.exe`（中文系统输出是本地化文本）；`ping-output/` 向量不适用于 Windows |

@@ -109,7 +109,7 @@ public class ConfigTests : IDisposable
     [Fact]
     public void PomodoroFullSectionIsParsed()
     {
-        var cfg = Load("[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nmorning_nudge = false\nmorning_nudge_after = \"08:30\"\n");
+        var cfg = Load("[pomodoro]\nenabled = false\nfocus_minutes = 50\nbreak_minutes = 10\nnotify = false\nsound = false\nidle_nudge = false\n");
         Assert.Equal(new PomodoroConfig
         {
             Enabled = false,
@@ -117,8 +117,7 @@ public class ConfigTests : IDisposable
             BreakMinutes = 10,
             Notify = false,
             Sound = false,
-            MorningNudge = false,
-            MorningNudgeAfterMinutes = 8 * 60 + 30,
+            IdleNudge = false,
         }, cfg.Pomodoro);
     }
 
@@ -132,8 +131,8 @@ public class ConfigTests : IDisposable
     }
 
     [Fact]
-    public void PomodoroMalformedNudgeAfterIsError() =>
-        AssertParseError("[pomodoro]\nmorning_nudge_after = \"9am\"\n", "morning_nudge_after");
+    public void PomodoroLegacyMorningNudgeKeysAreIgnored() =>
+        Assert.True(Load("[pomodoro]\nmorning_nudge = false\nmorning_nudge_after = \"9am\"\n").Pomodoro.IdleNudge);
 
     [Fact]
     public void PomodoroZeroFocusIsError() => AssertParseError("[pomodoro]\nfocus_minutes = 0\n", "focus_minutes");
