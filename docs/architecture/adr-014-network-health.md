@@ -116,7 +116,7 @@ Wi-Fi 网卡 `en0` 的网关 `192.168.207.254` ping 5 包 0% 丢包但 RTT 8～5
   - **SDD 新增 §12「网络健康」**（模型 / 配置 / 采样与统计口径 / 健康决策表 / 测速流程 / UI 职责 / 非目标），原 §12–§14 顺延为 §13–§15；§4 加 `[network]`；§9 加标签切换。
   - **新增测试向量**：`ping-output/`、`probe-stats/`、`probe-group/`、`captive-portal/`、`network-health/`、`throughput/`。
   - **task-spec 加 M10**：规格 + 向量 → macOS 实现 → Linux 待跟进。
-  - `config.example.toml` 加 `[network]`；`CONTEXT.md` 加术语；`Info.plist` 加定位用途说明。
+  - `config.example.toml` 加 `[network]`；`GLOSSARY.md` 加术语；`Info.plist` 加定位用途说明。
 
 ## Revisit Trigger
 

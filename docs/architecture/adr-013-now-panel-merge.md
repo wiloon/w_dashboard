@@ -107,7 +107,7 @@ SDD §9 从"五个分区"改为**四个视觉分区**（当下 / Repos / chezmoi
 
 - **Positive**：回收一张卡的纵向空间；顶部信息密度更合理；番茄钟 + 时钟归组清晰；番茄钟纯逻辑与
   测试向量零改动（环形进度环消费的还是同一个 `progress` 字段）。
-- **Negative**：SDD §9 / §11.4、CONTEXT.md、task-spec 需同步；两端短期视觉不一致；环形进度环多一处
+- **Negative**：SDD §9 / §11.4、GLOSSARY.md、task-spec 需同步；两端短期视觉不一致；环形进度环多一处
   两端各实现。
 - **Mitigation**：
   - **SDD §9** 改为"当下 / Repos / chezmoi / Weather"四视觉分区，番茄钟仍列为逻辑第 1 项，
@@ -115,7 +115,7 @@ SDD §9 从"五个分区"改为**四个视觉分区**（当下 / Repos / chezmoi
   - **SDD §11.4 步骤 2「面板」** 更新为：环形进度环 + 顶部「当下」卡片左半区，强提醒只作用于番茄钟子区域。
   - **SDD §5.6 / §11.2** 的 `progress`（0.0–1.0）语义**不变**；`pomodoro/` 与 `pomodoro-transition/`
     测试向量**不动**。
-  - **CONTEXT.md**「番茄钟」「时钟」词条各补一句：在主窗口顶部合为「当下（Now）」区。
+  - **GLOSSARY.md**「番茄钟」「时钟」词条各补一句：在主窗口顶部合为「当下（Now）」区。
   - **task-spec 新增 M9「顶部『当下』区：番茄钟 + 时钟合并 / 环形进度」**——记录 macOS 已改、
     Linux（Slint + plasmoid）待跟进。
 
