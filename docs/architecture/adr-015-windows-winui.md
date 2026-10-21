@@ -122,7 +122,7 @@ app-windows/
 - **Positive**：Windows 主机也能常驻 w_dashboard；Win11 原生观感；平台能力与 macOS 对齐。
 - **Negative**：多一套实现与构建链（.NET SDK + Windows App SDK）；文档中所有"两端"表述需要改写。
 - **Mitigation**：
-  - **AGENTS.md / SDD / task-spec / CONTEXT.md / `.cursor/rules/`**：所有"两端"改为"各端"，仓库结构加 `app-windows/`。
+  - **AGENTS.md / SDD / task-spec / GLOSSARY.md / `.cursor/rules/`**：所有"两端"改为"各端"，仓库结构加 `app-windows/`。
   - **SDD 补规格**：§4 配置路径（Windows）与 §4.1 仓库增删改与配置写回；§9.1 常驻图标（托盘 / 菜单栏）与主窗口生命周期；§11.4 托盘与通知的 Windows 实现；§12 网关 / Captive / 链路信息 / 网络切换的 Windows 实现；§13 构建、安装与开机自启。
   - **task-spec 新增 M11「app-windows」**。
   - **测试向量零改动**：Windows 端跑除 `ping-output/` 外的全部向量。

@@ -185,7 +185,7 @@
 > 移植自作者的网页版 `pomodoro-vue`。纯逻辑（`pomodoro_view` / `pomodoro_reduce`）是纯函数、进测试向量；
 > 定时器 / 托盘图标 / 通知 / 声音是各端 UI 层副作用，只做人工走查。不碰 §7 任何采集与派生规则。
 
-- **T8.1** 规格先行：写 ADR-012；SDD §1 概述补第 5 项，§4 加 `[pomodoro]` 段与校验规则，§5.6 加 `PomodoroPhase` / `PomodoroState` / `PomodoroView`，§6 加 `pomodoro_view` / `pomodoro_reduce` 签名，§9 把 Pomodoro 列为置顶分区 + 颜色语义，§10.2 加 `pomodoro/` 与 `pomodoro-transition/` 类别，新增 §11「番茄钟」（分层 / 派生规则 / 迁移规则 / 时长冻结 / UI 职责含配置重载 / 非目标），§13 非目标补一条；同步 `AGENTS.md`「项目是什么」、`config.example.toml`、`.cursor/rules/ui-no-logic.mdc`、`CONTEXT.md` 术语。
+- **T8.1** 规格先行：写 ADR-012；SDD §1 概述补第 5 项，§4 加 `[pomodoro]` 段与校验规则，§5.6 加 `PomodoroPhase` / `PomodoroState` / `PomodoroView`，§6 加 `pomodoro_view` / `pomodoro_reduce` 签名，§9 把 Pomodoro 列为置顶分区 + 颜色语义，§10.2 加 `pomodoro/` 与 `pomodoro-transition/` 类别，新增 §11「番茄钟」（分层 / 派生规则 / 迁移规则 / 时长冻结 / UI 职责含配置重载 / 非目标），§13 非目标补一条；同步 `AGENTS.md`「项目是什么」、`config.example.toml`、`.cursor/rules/ui-no-logic.mdc`、`GLOSSARY.md` 术语。
 - **T8.2** 测试向量：
   - `docs/test-vectors/pomodoro/`（10 个）：`{ "input": { "phase", "phase_started_at", "focus_secs", "break_secs", "now" }, "expected": { PomodoroView 全字段 } }`。覆盖 SDD §11.2 表每一行 + 临界（`elapsed == duration` 恰好）+ overtime + `Idle`（`phase_started_at: null`）。
   - `docs/test-vectors/pomodoro-transition/`（13 个）：`{ "input": { "state": { PomodoroState }, "event": "<PomodoroEvent>", "now" }, "expected": { PomodoroState } }`。覆盖 SDD §11.3 迁移表每一条 + `Tick` 恰好触发 `FocusEnded` / `BreakEnded` 的临界 + `*Ended` 超时数小时 `Tick` 仍不变（无自动收工，2026-10-13）+ `Tick` 未到时不变。
@@ -226,7 +226,7 @@
 
 - **T9.1** 规格先行：写 ADR-013；SDD §9 改为"四个视觉分区（当下 / Repos / chezmoi / Weather）、
   信息条目仍 5 项、番茄钟仍逻辑第 1 项"，§11.4 步骤 2 面板描述改为环形进度环 + 「当下」卡左半区、
-  强提醒只作用于番茄钟子区域；同步 `CONTEXT.md`（新增「当下（Now）区」词条）、`docs/architecture/README.md` 索引。
+  强提醒只作用于番茄钟子区域；同步 `GLOSSARY.md`（新增「当下（Now）区」词条）、`docs/architecture/README.md` 索引。
   `pomodoro/` 与 `pomodoro-transition/` 向量、§5.6 / §11.2 的 `progress` 语义**不改**。
 - **T9.2** macOS（`app-macos`）：
   - 新增 `Sources/WDashboardApp/NowPanelView.swift`（或在 `ContentView` 内组合）：一张 `.regularMaterial`
@@ -259,7 +259,7 @@
 > （跟随默认路由与系统代理）。纯逻辑（ping 解析 / 采样统计 / 分组汇总 / Captive 判定 / 健康等级 / 吞吐量）进向量；
 > 探测、测速、链路信息、触发调度属采集入口与 UI 层。**macOS 先落地，Linux 待跟进。**
 
-- **T10.1** 规格先行（✅）：ADR-014；SDD §1 第 6 项、§4 `[network]` / `[[network_targets]]`、§5.7 模型、§6 接口、§9 顶部标签切换、§10.2 第 9–14 类向量、新增 §12「网络健康」（原 §12–§14 顺延为 §13–§15）、§14 非目标补一条；同步 `CONTEXT.md`、`config.example.toml`、`AGENTS.md`、`.cursor/rules/ui-no-logic.mdc`、ADR 索引。
+- **T10.1** 规格先行（✅）：ADR-014；SDD §1 第 6 项、§4 `[network]` / `[[network_targets]]`、§5.7 模型、§6 接口、§9 顶部标签切换、§10.2 第 9–14 类向量、新增 §12「网络健康」（原 §12–§14 顺延为 §13–§15）、§14 非目标补一条；同步 `GLOSSARY.md`、`config.example.toml`、`AGENTS.md`、`.cursor/rules/ui-no-logic.mdc`、ADR 索引。
 - **T10.2** 测试向量（✅）：`ping-output/`（6）、`probe-stats/`（7）、`probe-group/`（5）、`captive-portal/`（4）、`network-health/`（15）、`throughput/`（4）。
 - **T10.3** app-macos 实现（✅；真机走查见下方验收，测速未在公共 Wi-Fi 上按按钮实测）：
   - `Sources/WDashboardCore/Network.swift`：模型（`ProbeStats` / `TargetResult` / `GroupSummary` / `NetworkReport` / `SpeedItem` / `SpeedTestReport` / 枚举）+ 纯函数 `parsePing` / `probeStats` / `probeGroupSummary` / `classifyCaptive` / `networkHealth` / `throughputMbps`。
@@ -289,7 +289,7 @@
 > **范围 = macOS 当前功能**：「当下」卡片（番茄钟 + 时钟）、Repos（含 `Manage…` 增删改、Pull / Push / Fetch、单行刷新）、Weather、
 > `Network`标签页、常驻托盘图标。chezmoi 面板与另两端一样暂缓。
 
-- **T11.1** 规格先行（✅）：写 ADR-015；ADR-002 加"后续：扩为三端"；SDD §2/§3 加 `app-windows`、§4 Windows 配置路径与路径比较规则、新增 §4.1 仓库增删改与配置写回（回填 macOS / Linux 已有行为）、§5.8 C# 类型示意、§6 加 `add_repo` / `remove_repo` / `update_repo`、新增 §9.1 常驻图标与主窗口生命周期、§9.2 安装与开机自启（回填 macOS 已有行为）、§10.2 注明 `ping-output/` 不适用于 Windows、§11.4 Windows 托盘 / 任务栏闪烁 / 通知 / 提示音（并把通知文案改为与实现一致的英文）、§12.3 Windows 网关采样与 C# 取整写法、§12.5 / §12.7 / §12.8 Windows 机制、§13 构建与分发；全仓库"两端"改为"各端"（`AGENTS.md`、SDD、`CONTEXT.md`、`.cursor/rules/`、ADR 索引）；`config.example.toml` 补 Windows 路径说明。**测试向量零改动。**
+- **T11.1** 规格先行（✅）：写 ADR-015；ADR-002 加"后续：扩为三端"；SDD §2/§3 加 `app-windows`、§4 Windows 配置路径与路径比较规则、新增 §4.1 仓库增删改与配置写回（回填 macOS / Linux 已有行为）、§5.8 C# 类型示意、§6 加 `add_repo` / `remove_repo` / `update_repo`、新增 §9.1 常驻图标与主窗口生命周期、§9.2 安装与开机自启（回填 macOS 已有行为）、§10.2 注明 `ping-output/` 不适用于 Windows、§11.4 Windows 托盘 / 任务栏闪烁 / 通知 / 提示音（并把通知文案改为与实现一致的英文）、§12.3 Windows 网关采样与 C# 取整写法、§12.5 / §12.7 / §12.8 Windows 机制、§13 构建与分发；全仓库"两端"改为"各端"（`AGENTS.md`、SDD、`GLOSSARY.md`、`.cursor/rules/`、ADR 索引）；`config.example.toml` 补 Windows 路径说明。**测试向量零改动。**
 - **T11.2** 开发环境与脚手架（✅；第三方依赖随用到它的任务再加，`windows:install` / `windows:uninstall` 随 T11.6 的安装脚本一起加）：
   - 安装 .NET 10 SDK 与 WinUI 开发组件（Visual Studio 的"WinUI 应用程序开发"工作负载，或命令行安装 Windows App SDK 项目模板）。
   - 建 `app-windows/WDashboard.sln`：`src/WDashboard.Core`（`net10.0`）、`src/WDashboard.App`（WinUI，`net10.0-windows`，不打包：`WindowsPackageType=None`）、`tests/WDashboard.Core.Tests`（xUnit）。依赖：`Tomlyn`、`CommunityToolkit.Mvvm`、`H.NotifyIcon.WinUI`。
